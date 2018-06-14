@@ -2,7 +2,6 @@ package tests
 
 import (
 	log "github.com/ubrabbit/go-common/log"
-	"testing"
 )
 
 func TestLog(t *testing.T) {
