@@ -92,7 +92,7 @@ func (self *EventPool) eventListener() {
 	for {
 		obj := <-self.signalQueue
 		if obj == nil {
-			LogInfo(self, "eventListener finished")
+			LogInfo("eventListener '%v' finished", self)
 			break
 		}
 
