@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	. "github.com/ubrabbit/go-server/common"
+	. "github.com/ubrabbit/go-common/common"
 )
 
 func callTest(args ...interface{}) {
