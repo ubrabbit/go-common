@@ -54,6 +54,6 @@ func TestEvent_1(t *testing.T) {
 	RemoveEvent(4)
 	TriggerEvent("event_2", 222, "event_2 trigger")
 
-	time.Sleep(3 * time.Second)
+	time.Sleep(1 * time.Second)
 	LogInfo("Finished")
 }

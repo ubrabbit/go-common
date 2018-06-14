@@ -74,10 +74,11 @@ func ConnRabbitMQ() (*rabbitmq.Connection, error) {
 	hostname := cfg.HostName
 	port := cfg.Port
 
+	LogInfo("Connect RabbitMQ %s:%d:%s", host, port, hostname)
 	// 初始化 参数格式：amqp://用户名:密码@地址:端口号/host
 	server := fmt.Sprintf("amqp://%s:%s@%s:%d/%s", account, password, host, port, hostname)
 	conn, err := rabbitmq.Dial(server)
-	//failOnError(err, "Failed to connect to RabbitMQ")
+	LogInfo("Connect RabbitMQ Success")
 	return conn, err
 }
 

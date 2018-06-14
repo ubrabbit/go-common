@@ -92,7 +92,7 @@ func (self *EventPool) eventListener() {
 	for {
 		obj := <-self.signalQueue
 		if obj == nil {
-			LogInfo("eventListener '%v' finished", self)
+			LogInfo("EventPool Finished Listening")
 			break
 		}
 
@@ -119,7 +119,7 @@ func (self *EventPool) executeEvent(obj *EventSignal) {
 	defer func() {
 		err := recover()
 		if err != nil {
-			LogError("executeEvent Error: ", obj, err)
+			LogError("executeEvent Error: %v : %v", obj, err)
 		}
 	}()
 	name := obj.Name
@@ -145,7 +145,7 @@ func (self *EventPool) executeEvent(obj *EventSignal) {
 			}
 		}
 	default:
-		LogError("Invalid EventSignal Error: ", obj)
+		LogError("Invalid EventSignal: %v", obj)
 	}
 }
 
