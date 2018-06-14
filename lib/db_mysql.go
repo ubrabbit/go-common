@@ -13,7 +13,6 @@ user:password@tcp([de:ad:be:ef::ca:fe]:80)/dbname
 
 import (
 	"fmt"
-	"log"
 )
 
 import (
@@ -29,13 +28,13 @@ var (
 
 func checkDBConn(conn *sql.DB) {
 	if conn == nil {
-		log.Fatalf("DB Conn %v is not inited!!!!!", conn)
+		LogFatal("DB Conn %v is not inited!!!!!", conn)
 	}
 }
 
 func InitMysql(host string, port int, dbname string, username string, password string) (*sql.DB, error) {
 	dataSourceName := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8", username, password, host, port, dbname)
-	fmt.Println("InitMysql ", dataSourceName)
+	LogInfo("InitMysql ", dataSourceName)
 	db, err := sql.Open("mysql", dataSourceName)
 	CheckFatal(err)
 
@@ -45,7 +44,7 @@ func InitMysql(host string, port int, dbname string, username string, password s
 	CheckFatal(err)
 
 	g_MysqlDB = db
-	fmt.Println(fmt.Sprintf("Connect Mysql %s Succ", host))
+	LogInfo(fmt.Sprintf("Connect Mysql %s Succ", host))
 	return db, err
 }
 
@@ -67,7 +66,7 @@ func MysqlQuery(sql_stmt interface{}, arg ...interface{}) []map[string]interface
 	case string:
 		rows, err = g_MysqlDB.Query(st, arg...)
 	default:
-		log.Fatalf("MysqlQuery error stmt: %v", sql_stmt)
+		LogFatal("MysqlQuery error stmt: %v", sql_stmt)
 	}
 	CheckFatal(err)
 
@@ -95,11 +94,8 @@ func MysqlQuery(sql_stmt interface{}, arg ...interface{}) []map[string]interface
 				record[columns[i]] = value
 			}
 		}
-		fmt.Println(record)
 		data = append(data, record)
 	}
-
-	fmt.Println("data is  ", data)
 	return data
 }
 
@@ -112,7 +108,7 @@ func execStmt(sql_stmt interface{}, arg ...interface{}) (sql.Result, error) {
 	case string:
 		result, err = g_MysqlDB.Exec(st, arg...)
 	default:
-		log.Fatalf("execStmt err sql_stmt: %v", sql_stmt)
+		LogFatal("execStmt err sql_stmt: %v", sql_stmt)
 	}
 
 	return result, err
@@ -174,7 +170,7 @@ func MysqlSeekDB(sql_stmt string) chan map[string]interface{} {
 	checkDBConn(g_MysqlDB)
 
 	sql_stmt = fmt.Sprintf("%s LIMIT ?,?", sql_stmt)
-	fmt.Println("sql_stmt is ", sql_stmt)
+	LogDebug("sql_stmt: ", sql_stmt)
 
 	stmt, err := g_MysqlDB.Prepare(sql_stmt)
 	CheckFatal(err)

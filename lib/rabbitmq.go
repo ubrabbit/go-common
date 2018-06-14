@@ -6,7 +6,6 @@ package lib
 import (
 	"errors"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 )
@@ -48,14 +47,14 @@ type RabbitMQSession struct {
 
 func failOnError(err error, msg string) {
 	if err != nil {
-		log.Fatalf("%s: %s", msg, err)
+		LogFatal("%s: %s", msg, err)
 	}
 }
 
 func InitRabbitMQ() *RabbitMQConfig {
 	cfg := GetRabbitMQConfig()
 	if cfg == nil {
-		fmt.Println("rabbitmq conf is nil, use default setting")
+		LogInfo("rabbitmq conf is nil, use default setting")
 		cfg = new(RabbitMQConfig)
 		cfg.Account = "guest"
 		cfg.Password = "guest"
@@ -78,6 +77,10 @@ func ConnRabbitMQ() (*rabbitmq.Connection, error) {
 	// 初始化 参数格式：amqp://用户名:密码@地址:端口号/host
 	server := fmt.Sprintf("amqp://%s:%s@%s:%d/%s", account, password, host, port, hostname)
 	conn, err := rabbitmq.Dial(server)
+	if err != nil {
+		LogError("Connect RabbitMQ Error: %v", err)
+		return nil, err
+	}
 	LogInfo("Connect RabbitMQ Success")
 	return conn, err
 }
@@ -121,7 +124,7 @@ func (session *RabbitMQSession) SetExchange(name string, t string) {
 	session.Exchange = name
 	session.ExchangeType = name
 	if last != name || last_t != t {
-		fmt.Println("reconnect by exchange changed")
+		LogInfo("reconnect by exchange changed")
 		session.reconnectSession()
 	}
 }
@@ -134,7 +137,7 @@ func (session *RabbitMQSession) Connect() error {
 	defer func() {
 		err := recover()
 		if err != nil {
-			fmt.Println("Connect Err:  ", err)
+			LogError("Connect Err:  %v", err)
 		}
 	}()
 
@@ -205,13 +208,13 @@ func (session *RabbitMQSession) reconnectSession() (bool, error) {
 			retry++
 		}
 		time.Sleep(time.Second * 1)
-		fmt.Println("try connect rabbitmq")
+		LogInfo("try reconnect rabbitmq")
 		err := session.Connect()
 		if err != nil {
-			fmt.Println(err)
+			LogError("reconnect rabbitmq error: %v", err)
 			continue
 		}
-		fmt.Println("success connect rabbitmq")
+		LogInfo("success reconnect rabbitmq")
 		return true, nil
 	}
 	return false, errors.New("fail reconnect rabbitmq")
@@ -225,7 +228,6 @@ func (session *RabbitMQSession) Ping() error {
 	channel := session.Channel
 	err := channel.ExchangeDeclare("ping.ping", "topic", false, true, false, true, nil)
 	if err != nil {
-		//fmt.Println("11111 ", err)
 		return err
 	}
 
@@ -235,12 +237,10 @@ func (session *RabbitMQSession) Ping() error {
 		Body:        []byte(msgContent),
 	})
 	if err != nil {
-		//fmt.Println("22222 ", err)
 		return err
 	}
 
 	err = channel.ExchangeDelete("ping.ping", false, false)
-	//fmt.Println("33333 ", err)
 	return err
 }
 
@@ -275,14 +275,14 @@ func (session *RabbitMQSession) ExecuteReceiver(body []byte) (bool, error) {
 		session.Unlock()
 		err := recover()
 		if err != nil {
-			fmt.Println("ExecuteReceiver Error: ", err)
+			LogError("ExecuteReceiver Error: %v", err)
 		}
 	}()
 	for name := range session.MsgReceiver {
 		recever := session.MsgReceiver[name]
 		_, err := recever.Receiver(body)
 		if err != nil {
-			fmt.Println("Receiver Error: ", recever.Name, err)
+			LogError("Receiver %s Error: %v", recever.Name, err)
 		}
 	}
 	return true, nil
@@ -331,11 +331,11 @@ func (session *RabbitMQSession) publishMsg(data []byte, save bool) error {
 }
 
 func (session *RabbitMQSession) confirmPushMsg() {
-	log.Printf("waiting for confirmMsg")
+	LogInfo("waiting for confirmMsg")
 	for {
 		confirmed, ok := <-session.waitPushConfirm
 		if !ok {
-			log.Printf("break confirmMsg by waitPushConfirm closed")
+			LogInfo("break confirmMsg by waitPushConfirm closed")
 			break
 		}
 		session.OnPushConfirm.Call(confirmed.DeliveryTag, confirmed.Ack)
@@ -347,7 +347,7 @@ func (session *RabbitMQSession) SetPushConfirm(f Functor) {
 		session.OnPushConfirm = f
 		return
 	}
-	log.Printf("enabling publishing confirms.")
+	LogInfo("enabling publishing confirms.")
 	if err := session.Channel.Confirm(false); err != nil {
 		fmt.Errorf("Channel could not be put into confirm mode: %s", err)
 		return
@@ -364,7 +364,7 @@ func (session *RabbitMQSession) PushMsg(data []byte) bool {
 	for {
 		err := session.publishMsg(data, true)
 		if err != nil {
-			fmt.Println("pushMsg Error: ", err)
+			LogError("pushMsg Error: %v", err)
 			succ, err := session.reconnectSession()
 			if succ {
 				continue
@@ -372,7 +372,7 @@ func (session *RabbitMQSession) PushMsg(data []byte) bool {
 			msg := JoinString("", "Failed to push message: ", string(data))
 			session.setError(err, msg)
 			if !session.IsShutdown() {
-				log.Fatalf("%s reason: %s", msg, err.Error())
+				LogFatal("%s reason: %s", msg, err.Error())
 			}
 			break
 		}
@@ -385,7 +385,7 @@ func (session *RabbitMQSession) PushMsgNoSave(data []byte) bool {
 	for {
 		err := session.publishMsg(data, false)
 		if err != nil {
-			fmt.Println("pushMsg Error: ", err)
+			LogError("pushMsg Error: %v", err)
 			succ, err := session.reconnectSession()
 			if succ {
 				continue
@@ -403,7 +403,7 @@ func (session *RabbitMQSession) Close() error {
 	defer func() {
 		err := recover()
 		if err != nil {
-			fmt.Println(err)
+			LogError("Close Error: %v", err)
 		}
 	}()
 
@@ -452,12 +452,12 @@ func (session *RabbitMQSession) IsShutdown() bool {
 func (session *RabbitMQSession) ConsumeMsg() {
 	for {
 		if session.IsShutdown() {
-			fmt.Println("consume finished by shutdown")
+			LogInfo("rabbitmq consumer finished by shutdown")
 			break
 		}
 		ok, _ := session.reconnectSession()
 		if !ok {
-			fmt.Println("consume finished by connect failure")
+			LogInfo("rabbitmq consumer finished by connect failure")
 			break
 		}
 
@@ -470,7 +470,7 @@ func (session *RabbitMQSession) ConsumeMsg() {
 			nil,          // arguments
 		); err != nil {
 			msg := "Failed to Queue Bind"
-			fmt.Println(msg)
+			LogError(msg)
 			session.setError(fmt.Errorf("Queue Bind: %s", err), msg)
 			continue
 		}
@@ -486,13 +486,13 @@ func (session *RabbitMQSession) ConsumeMsg() {
 		)
 		if err != nil {
 			msg := "Failed to create Consume"
-			fmt.Println(msg)
+			LogError(msg)
 			session.setError(err, msg)
 			continue
 		}
-		fmt.Println(">>>>>>>>>>> start consumer")
+		LogDebug(">>>>>>>>>>> start consumer")
 		for msg := range ch_msgs {
-			log.Printf(
+			LogInfo(
 				"got %dB delivery: [%v] %q",
 				len(msg.Body),
 				msg.DeliveryTag,
@@ -512,6 +512,6 @@ func (session *RabbitMQSession) ConsumeMsg() {
 				msg.Nack(false, requeue)
 			}
 		}
-		fmt.Println(">>>>>>>>>>> finished consumer")
+		LogDebug(">>>>>>>>>>> finished consumer")
 	}
 }

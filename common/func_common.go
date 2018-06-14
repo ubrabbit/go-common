@@ -3,7 +3,6 @@ package common
 import (
 	"bytes"
 	"encoding/binary"
-	"log"
 	"strconv"
 	"strings"
 	"unsafe"
@@ -11,7 +10,8 @@ import (
 
 func CheckFatal(err error) {
 	if err != nil {
-		log.Fatal(err)
+		//log.Fatal(err)
+		LogFatal("%v", err)
 	}
 }
 

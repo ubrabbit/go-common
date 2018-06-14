@@ -10,7 +10,6 @@ REDIS pool的使用
 import (
 	"errors"
 	"fmt"
-	"log"
 	"time"
 )
 
@@ -51,7 +50,7 @@ func newRedisPool(host string) *redis.Pool {
 					//所以需要用chan等待连接释放
 					c, err := redis.Dial("tcp", host)
 					if err != nil {
-						fmt.Println(err)
+						LogError("Connect Redis Error: %v", err)
 						time.Sleep(1 * time.Second)
 						wait++
 						continue
@@ -82,16 +81,17 @@ func newRedisPool(host string) *redis.Pool {
 
 func checkRedisConn(conn redis.Conn) {
 	if conn == nil {
-		log.Fatalf("DB RedisConn %v is not inited!!!!!", conn)
+		LogFatal("DB RedisConn %v is not inited!!!!!", conn)
 	}
 }
 
 func InitRedis(host string, port int) redis.Conn {
 	address := fmt.Sprintf("%s:%d", host, port)
+	LogInfo("Connect Redis %s", address)
 	conn, err := redis.Dial("tcp", address)
 	CheckFatal(err)
 
-	fmt.Printf("Connect Redis %s Succ\n", address)
+	LogInfo("Connect Redis Succ")
 	g_RedisDB = conn
 	g_RedisPool = newRedisPool(address)
 	return conn
@@ -126,11 +126,9 @@ func RedisConnAlive(conn redis.Conn) bool {
 func RedisConnExec(conn redis.Conn, cmd string, arg ...interface{}) (int, error) {
 	result, err := redis.Int(conn.Do(cmd, arg...))
 	if err != nil {
-		fmt.Println("Redis Exec error: ", cmd, arg, result, err)
+		LogError("RedisConnExec Error: %s %v %v", cmd, arg, err)
 		return result, err
 	}
-
-	//fmt.Println("result is ", result)
 	return result, nil
 }
 
@@ -151,10 +149,9 @@ func RedisConnGetString(conn redis.Conn, cmd string, arg ...interface{}) interfa
 	}
 	value, err = redis.String(value, err)
 	if err != nil {
-		fmt.Println("RedisGetString error: ", cmd, arg, err)
+		LogError("RedisGetString Error: %s %v %v", cmd, arg, err)
 		return nil
 	}
-	//fmt.Println("value is ", value)
 	return value
 }
 
@@ -173,10 +170,9 @@ func RedisConnGetInt(conn redis.Conn, cmd string, arg ...interface{}) interface{
 	}
 	value, err = redis.Int64(value, err)
 	if err != nil {
-		fmt.Println("RedisGetInt error: ", cmd, arg, err)
+		LogError("RedisGetInt Error: %s %v %v", cmd, arg, err)
 		return nil
 	}
-	//fmt.Println("value is ", value)
 	return value
 }
 
@@ -190,14 +186,13 @@ func RedisGetInt(cmd string, arg ...interface{}) interface{} {
 func RedisConnGetList(conn redis.Conn, cmd string, arg ...interface{}) []string {
 	value_list, err := redis.Values(conn.Do(cmd, arg...))
 	if err != nil {
-		fmt.Println("RedisGetList error: ", cmd, arg, err)
+		LogError("RedisGetList Error: %s %v %v", cmd, arg, err)
 		return nil
 	}
 	result := make([]string, 0)
 	for _, value := range value_list {
 		result = append(result, string(value.([]byte)))
 	}
-	fmt.Println("result is ", result)
 	return result
 }
 
@@ -211,10 +206,9 @@ func RedisGetList(cmd string, arg ...interface{}) []string {
 func RedisConnGetMap(conn redis.Conn, cmd string, arg ...interface{}) map[string]string {
 	value, err := redis.StringMap(conn.Do(cmd, arg...))
 	if err != nil {
-		fmt.Println("RedisGetMap error: ", cmd, arg, err)
+		LogError("RedisGetMap Error: %s %v %v", cmd, arg, err)
 		return nil
 	}
-	//fmt.Println("value is ", value)
 	return value
 }
 

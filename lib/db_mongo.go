@@ -6,6 +6,10 @@ import (
 	"labix.org/v2/mgo/bson"
 )
 
+import (
+	. "github.com/ubrabbit/go-common/common"
+)
+
 type MongoClient struct {
 	IP      string
 	Port    int
@@ -23,7 +27,7 @@ func InitMongo(ip string, port int) {
 	}
 	session.SetMode(mgo.Monotonic, true)
 
-	fmt.Printf("Connect Mgo %s:%d Succ\n", ip, port)
+	LogInfo("Connect Mgo %s:%d Succ\n", ip, port)
 	g_MongoClient = new(MongoClient)
 	g_MongoClient.IP = ip
 	g_MongoClient.Port = port
@@ -32,7 +36,7 @@ func InitMongo(ip string, port int) {
 
 func GetMongoConn() *mgo.Session {
 	if g_MongoClient == nil {
-		panic("Mgo Client Not inited")
+		LogFatal("Mgo Client Not inited")
 	}
 	return g_MongoClient.Session
 }
