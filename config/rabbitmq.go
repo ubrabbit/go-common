@@ -14,7 +14,7 @@ func GetRabbitMQConfig() *RabbitMQConfig {
 	return g_RabbitMQConfig
 }
 
-func InitConfigRabbitMQ() {
+func InitRabbitMQConfig() {
 	setting := GetConfigFile().ReadConfig("rabbitmq")
 
 	g_RabbitMQConfig = new(RabbitMQConfig)

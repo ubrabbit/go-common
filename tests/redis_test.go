@@ -28,9 +28,10 @@ func TestRedis(t *testing.T) {
 	fmt.Println("RedisGetInt : ", lib.RedisGetInt("hget", "Score", "aaa"))
 	fmt.Println("RedisGetList1 : ", lib.RedisGetList("lrange", "LIST", 0, -1))
 	fmt.Println("RedisGetList2 : ", lib.RedisGetList("hgetall", "Score"))
+	fmt.Println("RedisGetMap : ", lib.RedisGetMap("hgetall", "Score"))
 
 	pool.Close()
-	lib.RedisExec("set", "Name", "Hello")
-	fmt.Println("RedisGetList2 After Closed: ", lib.RedisGetList("hgetall", "Score"))
+	//lib.RedisExec("set", "Name", "Hello")
+	//fmt.Println("RedisGetList2 After Closed: ", lib.RedisGetList("hgetall", "Score"))
 	time.Sleep(1 * time.Second)
 }

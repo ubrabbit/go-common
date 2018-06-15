@@ -492,7 +492,7 @@ func (session *RabbitMQSession) ConsumeMsg() {
 		}
 		LogDebug(">>>>>>>>>>> start consumer")
 		for msg := range ch_msgs {
-			LogInfo(
+			LogDebug(
 				"got %dB delivery: [%v] %q",
 				len(msg.Body),
 				msg.DeliveryTag,

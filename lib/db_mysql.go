@@ -13,6 +13,7 @@ user:password@tcp([de:ad:be:ef::ca:fe]:80)/dbname
 
 import (
 	"fmt"
+	"sync"
 )
 
 import (
@@ -22,52 +23,95 @@ import (
 	. "github.com/ubrabbit/go-common/common"
 )
 
-var (
-	g_MysqlDB *sql.DB = nil
+const (
+	MAX_OPEN_MYSQL_CONNECTIONS = 32
+	MAX_IDLE_MYSQL_CONNECTIONS = 8
 )
 
-func checkDBConn(conn *sql.DB) {
-	if conn == nil {
-		LogFatal("DB Conn %v is not inited!!!!!", conn)
-	}
+var (
+	g_MysqlDB *MysqlConnect = nil
+)
+
+type MysqlConnect struct {
+	sync.Mutex
+	db *sql.DB
 }
 
-func InitMysql(host string, port int, dbname string, username string, password string) (*sql.DB, error) {
+func NewMysqlConn(host string, port int, dbname string, username string, password string) *MysqlConnect {
 	dataSourceName := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8", username, password, host, port, dbname)
-	LogInfo("InitMysql ", dataSourceName)
+	LogInfo("Connect Mysql: %s %d", host, port)
 	db, err := sql.Open("mysql", dataSourceName)
 	CheckFatal(err)
 
-	db.SetMaxOpenConns(5)
-	db.SetMaxIdleConns(2)
+	db.SetMaxOpenConns(MAX_OPEN_MYSQL_CONNECTIONS)
+	db.SetMaxIdleConns(MAX_IDLE_MYSQL_CONNECTIONS)
 	err = db.Ping()
 	CheckFatal(err)
 
-	g_MysqlDB = db
 	LogInfo(fmt.Sprintf("Connect Mysql %s Succ", host))
-	return db, err
+	return &MysqlConnect{db: db}
 }
 
-func CloseMysql() {
-	if g_MysqlDB != nil {
-		g_MysqlDB.Close()
-	}
+func InitMysql(host string, port int, dbname string, username string, password string) {
+	LogInfo("InitMysql %s:%d %s", host, port, dbname)
+	conn := NewMysqlConn(host, port, dbname, username, password)
+	g_MysqlDB = conn
+	LogInfo("InitMysql Success")
 }
 
-func MysqlQuery(sql_stmt interface{}, arg ...interface{}) []map[string]interface{} {
-	checkDBConn(g_MysqlDB)
+func (self *MysqlConnect) Close() {
+	self.Lock()
+	defer func() {
+		err := recover()
+		if err != nil {
+			LogError("Mysql Close Error: %v", err)
+		}
+		self.Unlock()
+	}()
+	self.db.Close()
+}
 
-	var rows *sql.Rows = nil
-	var err error = nil
+func (self *MysqlConnect) Transaction() (*sql.Tx, error) {
+	return self.db.Begin()
+}
 
-	switch st := sql_stmt.(type) {
-	case *sql.Stmt:
-		rows, err = st.Query(arg...)
-	case string:
-		rows, err = g_MysqlDB.Query(st, arg...)
-	default:
-		LogFatal("MysqlQuery error stmt: %v", sql_stmt)
+func (self *MysqlConnect) TransactionExec(sql string, args ...interface{}) (result interface{}, err error) {
+	tranx, err := self.db.Begin()
+	if err != nil {
+		return nil, err
 	}
+	defer func() {
+		if err != nil {
+			tranx.Rollback()
+			return
+		}
+		err = tranx.Commit()
+	}()
+
+	result, err = tranx.Exec(sql, args...)
+	return result, err
+}
+
+func (self *MysqlConnect) PrepareStmt(sql string) *sql.Stmt {
+	sql_stmt, err := self.db.Prepare(sql)
+	CheckFatal(err)
+	return sql_stmt
+}
+
+func (self *MysqlConnect) execStmt(sql string, arg ...interface{}) (sql.Result, error) {
+	sql_stmt, err := self.db.Prepare(sql)
+	defer sql_stmt.Close()
+	CheckFatal(err)
+
+	result, err := sql_stmt.Exec(arg...)
+	return result, err
+}
+
+func (self *MysqlConnect) Query(sql string, arg ...interface{}) []map[string]interface{} {
+	sql_stmt, err := self.db.Prepare(sql)
+	CheckFatal(err)
+
+	rows, err := sql_stmt.Query(arg...)
 	CheckFatal(err)
 
 	columns, err := rows.Columns()
@@ -78,7 +122,6 @@ func MysqlQuery(sql_stmt interface{}, arg ...interface{}) []map[string]interface
 	for i := range values {
 		scanArgs[i] = &values[i]
 	}
-
 	data := make([]map[string]interface{}, 0)
 	for rows.Next() {
 		//将行数据保存到record字典
@@ -99,37 +142,39 @@ func MysqlQuery(sql_stmt interface{}, arg ...interface{}) []map[string]interface
 	return data
 }
 
-func execStmt(sql_stmt interface{}, arg ...interface{}) (sql.Result, error) {
-	var result sql.Result = nil
-	var err error = nil
-	switch st := sql_stmt.(type) {
-	case *sql.Stmt:
-		result, err = st.Exec(arg...)
-	case string:
-		result, err = g_MysqlDB.Exec(st, arg...)
-	default:
-		LogFatal("execStmt err sql_stmt: %v", sql_stmt)
+func checkDBConn() {
+	if g_MysqlDB == nil {
+		LogFatal("DB Conn is not inited!!!!!")
 	}
-
-	return result, err
 }
 
-func MysqlUpdate(sql_stmt interface{}, arg ...interface{}) int64 {
-	checkDBConn(g_MysqlDB)
+func MysqlClose() {
+	if g_MysqlDB != nil {
+		g_MysqlDB.Close()
+		g_MysqlDB = nil
+	}
+}
 
-	result, err := execStmt(sql_stmt, arg...)
+func MysqlQuery(sql string, arg ...interface{}) []map[string]interface{} {
+	checkDBConn()
+	return g_MysqlDB.Query(sql, arg...)
+}
+
+func MysqlUpdate(sql string, arg ...interface{}) int64 {
+	checkDBConn()
+
+	result, err := g_MysqlDB.execStmt(sql, arg...)
 	CheckFatal(err)
 
 	num, err := result.RowsAffected()
 	CheckFatal(err)
-
 	return num
 }
 
-func MysqlInsert(sql_stmt interface{}, arg ...interface{}) int64 {
-	checkDBConn(g_MysqlDB)
+func MysqlInsert(sql string, arg ...interface{}) int64 {
+	checkDBConn()
 
-	result, err := execStmt(sql_stmt, arg...)
+	result, err := g_MysqlDB.execStmt(sql, arg...)
 	CheckFatal(err)
 
 	lastid, err := result.LastInsertId()
@@ -137,10 +182,10 @@ func MysqlInsert(sql_stmt interface{}, arg ...interface{}) int64 {
 	return lastid
 }
 
-func MysqlDelete(sql_stmt interface{}, arg ...interface{}) int64 {
-	checkDBConn(g_MysqlDB)
+func MysqlDelete(sql string, arg ...interface{}) int64 {
+	checkDBConn()
 
-	result, err := execStmt(sql_stmt, arg...)
+	result, err := g_MysqlDB.execStmt(sql, arg...)
 	CheckFatal(err)
 
 	num, err := result.RowsAffected()
@@ -148,40 +193,22 @@ func MysqlDelete(sql_stmt interface{}, arg ...interface{}) int64 {
 	return num
 }
 
-func MysqlTransaction() *sql.Tx {
-	checkDBConn(g_MysqlDB)
-
-	tranx, err := g_MysqlDB.Begin()
-	CheckFatal(err)
-
-	return tranx
+func MysqlTransactionExec(sql string, args ...interface{}) (interface{}, error) {
+	checkDBConn()
+	return g_MysqlDB.TransactionExec(sql, args...)
 }
 
-func MysqlPrepare(sql string) *sql.Stmt {
-	checkDBConn(g_MysqlDB)
+func MysqlSeekDB(sql string) chan map[string]interface{} {
+	checkDBConn()
 
-	stmt, err := g_MysqlDB.Prepare(sql)
-	CheckFatal(err)
-
-	return stmt
-}
-
-func MysqlSeekDB(sql_stmt string) chan map[string]interface{} {
-	checkDBConn(g_MysqlDB)
-
-	sql_stmt = fmt.Sprintf("%s LIMIT ?,?", sql_stmt)
-	LogDebug("sql_stmt: ", sql_stmt)
-
-	stmt, err := g_MysqlDB.Prepare(sql_stmt)
-	CheckFatal(err)
+	sql = fmt.Sprintf("%s LIMIT ?,?", sql)
+	LogDebug("sql_stmt: %s", sql)
 
 	ch := make(chan map[string]interface{}, 100)
-
-	var res_list []map[string]interface{}
 	go func() {
 		start, seek_cnt := 0, 100
 		for {
-			res_list = MysqlQuery(stmt, start, seek_cnt)
+			res_list := g_MysqlDB.Query(sql, start, seek_cnt)
 			if len(res_list) <= 0 {
 				break
 			}
@@ -192,6 +219,5 @@ func MysqlSeekDB(sql_stmt string) chan map[string]interface{} {
 		}
 		ch <- nil
 	}()
-
 	return ch
 }

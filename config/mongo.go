@@ -11,7 +11,7 @@ func GetMongoConfig() *MongoConfig {
 	return g_MongoConfig
 }
 
-func InitConfigMongoDB() {
+func InitMongoDBConfig() {
 	setting := GetConfigFile().ReadConfig("mongo")
 	g_MongoConfig = new(MongoConfig)
 	g_MongoConfig.IP = getSettingValue(setting, "ip", 1)

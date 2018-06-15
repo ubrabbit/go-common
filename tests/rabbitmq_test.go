@@ -5,7 +5,6 @@ import (
 	. "github.com/ubrabbit/go-common/common"
 	config "github.com/ubrabbit/go-common/config"
 	lib "github.com/ubrabbit/go-common/lib"
-	"log"
 	"testing"
 	"time"
 )
@@ -26,12 +25,7 @@ func OnConfirm(args ...interface{}) {
 	tag := args[2].(uint64)
 	ack := args[3].(bool)
 
-	LogInfo("OnConfirm : %d %s", par1, par2)
-	if ack {
-		log.Printf("confirmed delivery with delivery tag: %d", tag)
-	} else {
-		log.Printf("failed delivery of delivery tag: %d", tag)
-	}
+	LogInfo("OnConfirm : %d %s", tag, ack, par1, par2)
 }
 
 func TestRabbitMQ_Consumer(t *testing.T) {
@@ -46,7 +40,7 @@ func TestRabbitMQ_Consumer(t *testing.T) {
 	go func() {
 		session.ConsumeMsg()
 	}()
-	time.Sleep(3 * time.Second)
+	time.Sleep(1 * time.Second)
 
 }
 
@@ -61,11 +55,10 @@ func TestRabbitMQ_Producer(t *testing.T) {
 		for {
 			msg := fmt.Sprintf("data_%d", i)
 			i++
-			fmt.Println("Push ", msg)
 			session.PushMsg([]byte(msg))
 			time.Sleep(1 * time.Second)
 		}
 	}()
 
-	time.Sleep(3 * time.Second)
+	time.Sleep(1 * time.Second)
 }

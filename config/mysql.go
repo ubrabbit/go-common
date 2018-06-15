@@ -14,7 +14,7 @@ func GetMysqlConfig() *MysqlConfig {
 	return g_MysqlConfig
 }
 
-func InitConfigMysql() {
+func InitMysqlConfig() {
 	setting := GetConfigFile().ReadConfig("mysql")
 
 	g_MysqlConfig = new(MysqlConfig)

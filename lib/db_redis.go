@@ -141,35 +141,25 @@ func (self *RedisPool) doCmd(cmd string, arg ...interface{}) (interface{}, error
 func RedisExec(cmd string, arg ...interface{}) interface{} {
 	result, err := g_RedisPool.doCmd(cmd, arg...)
 	if err != nil {
-		LogError("RedisExec Error: %s %v %v", cmd, arg, err)
+		LogFatal("RedisExec Error: %s %v %v", cmd, arg, err)
 		return nil
 	}
 	return result
 }
 
 func RedisGetString(cmd string, arg ...interface{}) interface{} {
-	value, err := g_RedisPool.doCmd(cmd, arg...)
+	value, err := redis.String(g_RedisPool.doCmd(cmd, arg...))
 	if err != nil {
-		LogError("RedisGetString Error: %s %v %v", cmd, arg, err)
-		return nil
-	}
-	value, err = redis.String(value, err)
-	if err != nil {
-		LogError("RedisGetString Error: %s %v %v", cmd, arg, err)
+		LogFatal("RedisGetString Error: %s %v %v", cmd, arg, err)
 		return nil
 	}
 	return value
 }
 
 func RedisGetInt(cmd string, arg ...interface{}) interface{} {
-	value, err := g_RedisPool.doCmd(cmd, arg...)
+	value, err := redis.Int64(g_RedisPool.doCmd(cmd, arg...))
 	if err != nil {
-		LogError("RedisGetInt Error: %s %v %v", cmd, arg, err)
-		return nil
-	}
-	value, err = redis.Int64(value, err)
-	if err != nil {
-		LogError("RedisGetInt Error: %s %v %v", cmd, arg, err)
+		LogFatal("RedisGetInt Error: %s %v %v", cmd, arg, err)
 		return nil
 	}
 	return value
@@ -178,7 +168,7 @@ func RedisGetInt(cmd string, arg ...interface{}) interface{} {
 func RedisGetList(cmd string, arg ...interface{}) []string {
 	value_list, err := redis.Values(g_RedisPool.doCmd(cmd, arg...))
 	if err != nil {
-		LogError("RedisGetList Error: %s %v %v", cmd, arg, err)
+		LogFatal("RedisGetList Error: %s %v %v", cmd, arg, err)
 		return nil
 	}
 	result := make([]string, 0)
@@ -191,7 +181,7 @@ func RedisGetList(cmd string, arg ...interface{}) []string {
 func RedisGetMap(cmd string, arg ...interface{}) map[string]string {
 	value, err := redis.StringMap(g_RedisPool.doCmd(cmd, arg...))
 	if err != nil {
-		LogError("RedisGetMap Error: %s %v %v", cmd, arg, err)
+		LogFatal("RedisGetMap Error: %s %v %v", cmd, arg, err)
 		return nil
 	}
 	return value

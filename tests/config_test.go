@@ -11,10 +11,10 @@ const filepath = "config_test.conf"
 func TestConfig(t *testing.T) {
 	fmt.Printf("\n\n=====================  TestConfig  =====================\n")
 	config.InitConfig(filepath)
-	config.InitConfigMongoDB()
-	config.InitConfigMysql()
-	config.InitConfigRabbitMQ()
-	config.InitConfigRedis()
+	config.InitMongoDBConfig()
+	config.InitMysqlConfig()
+	config.InitRabbitMQConfig()
+	config.InitRedisConfig()
 }
 
 func TestConfig2(t *testing.T) {

@@ -11,7 +11,7 @@ func GetRedisConfig() *RedisConfig {
 	return g_RedisConfig
 }
 
-func InitConfigRedis() {
+func InitRedisConfig() {
 	setting := GetConfigFile().ReadConfig("redis")
 
 	g_RedisConfig = new(RedisConfig)
