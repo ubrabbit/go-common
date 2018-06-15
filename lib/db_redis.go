@@ -14,36 +14,42 @@ import (
 )
 
 import (
-	"github.com/garyburd/redigo/redis"
+	redis "github.com/garyburd/redigo/redis"
 
 	. "github.com/ubrabbit/go-common/common"
 )
 
 var (
-	g_RedisDB   redis.Conn  = nil
-	g_RedisPool *redis.Pool = nil
+	g_RedisPool *RedisPool = nil
 )
 
 const (
-	MAX_REDIS_POOL_ACTIVE = 3000
+	MAX_REDIS_POOL_ACTIVE = 4096
 )
 
-type PoolDial struct {
+type poolDial struct {
 	Conn redis.Conn
 	Err  error
+}
+
+type RedisPool struct {
+	host string
+	port int
+	conn redis.Conn
+	pool *redis.Pool
 }
 
 func newRedisPool(host string) *redis.Pool {
 	pool := &redis.Pool{
 		Dial: func() (redis.Conn, error) {
-			ch := make(chan PoolDial)
+			ch := make(chan poolDial)
 			defer close(ch)
 			go func() {
 				wait := 0
 				for {
 					if wait >= 60 {
 						err := errors.New("fatal: redis pool want to connect db, but wait too long")
-						ch <- PoolDial{nil, err}
+						ch <- poolDial{nil, err}
 						break
 					}
 					//在短期高并发导致端口用尽时，会报 cannot assign requested address 错误
@@ -55,7 +61,7 @@ func newRedisPool(host string) *redis.Pool {
 						wait++
 						continue
 					}
-					ch <- PoolDial{c, err}
+					ch <- poolDial{c, err}
 					break
 				}
 			}()
@@ -79,72 +85,72 @@ func newRedisPool(host string) *redis.Pool {
 	return pool
 }
 
-func checkRedisConn(conn redis.Conn) {
-	if conn == nil {
-		LogFatal("DB RedisConn %v is not inited!!!!!", conn)
-	}
-}
-
-func InitRedis(host string, port int) redis.Conn {
+func InitRedis(host string, port int) *RedisPool {
 	address := fmt.Sprintf("%s:%d", host, port)
 	LogInfo("Connect Redis %s", address)
 	conn, err := redis.Dial("tcp", address)
 	CheckFatal(err)
 
 	LogInfo("Connect Redis Succ")
-	g_RedisDB = conn
-	g_RedisPool = newRedisPool(address)
-	return conn
+	g_RedisPool = &RedisPool{conn: conn, pool: newRedisPool(address)}
+	g_RedisPool.host = host
+	g_RedisPool.port = port
+	return g_RedisPool
 }
 
-func CloseRedis() {
-	if g_RedisPool != nil {
-		g_RedisPool.Close()
-	}
-	if g_RedisDB != nil {
-		g_RedisDB.Close()
-	}
+func (self *RedisPool) String() string {
+	return fmt.Sprintf("[Redis] %s:%d", self.host, self.port)
 }
 
-func GetRedisConn() redis.Conn {
-	conn := g_RedisPool.Get()
+func (self *RedisPool) Close() {
+	defer func() {
+		err := recover()
+		if err != nil {
+			LogError("Close Redis Error: %v", err)
+		}
+	}()
+	self.conn.Close()
+	self.pool.Close()
+}
+
+func (self *RedisPool) GetConn() redis.Conn {
+	conn := self.pool.Get()
 	if conn != nil {
 		return conn
 	}
-	checkRedisConn(g_RedisDB)
-	return g_RedisDB
-}
-
-func RedisConnAlive(conn redis.Conn) bool {
-	_, err := conn.Do("PING")
-	if err != nil {
-		return false
+	if self.conn == nil {
+		LogFatal("DB RedisConn %v is not inited!", self.conn)
 	}
-	return true
-}
-
-func RedisConnExec(conn redis.Conn, cmd string, arg ...interface{}) (int, error) {
-	result, err := redis.Int(conn.Do(cmd, arg...))
+	_, err := self.conn.Do("PING")
 	if err != nil {
-		LogError("RedisConnExec Error: %s %v %v", cmd, arg, err)
-		return result, err
+		LogFatal("DB RedisConn %v is not alived!", self.conn)
+		return nil
 	}
-	return result, nil
+	return self.conn
 }
 
-func RedisExec(cmd string, arg ...interface{}) (int, error) {
-	conn := GetRedisConn()
+func (self *RedisPool) doCmd(cmd string, arg ...interface{}) (interface{}, error) {
+	conn := self.GetConn()
 	//不加这行语句会导致死锁
 	//比如同一个函数执行了两次 RedisExec，但获取的是不同的conn的情况
 	defer conn.Close()
-
-	return RedisConnExec(conn, cmd, arg...)
+	result, err := conn.Do(cmd, arg...)
+	return result, err
 }
 
-func RedisConnGetString(conn redis.Conn, cmd string, arg ...interface{}) interface{} {
-	value, err := conn.Do(cmd, arg...)
-	CheckFatal(err)
-	if value == nil {
+func RedisExec(cmd string, arg ...interface{}) interface{} {
+	result, err := g_RedisPool.doCmd(cmd, arg...)
+	if err != nil {
+		LogError("RedisExec Error: %s %v %v", cmd, arg, err)
+		return nil
+	}
+	return result
+}
+
+func RedisGetString(cmd string, arg ...interface{}) interface{} {
+	value, err := g_RedisPool.doCmd(cmd, arg...)
+	if err != nil {
+		LogError("RedisGetString Error: %s %v %v", cmd, arg, err)
 		return nil
 	}
 	value, err = redis.String(value, err)
@@ -155,17 +161,10 @@ func RedisConnGetString(conn redis.Conn, cmd string, arg ...interface{}) interfa
 	return value
 }
 
-func RedisGetString(cmd string, arg ...interface{}) interface{} {
-	conn := GetRedisConn()
-	defer conn.Close()
-
-	return RedisConnGetString(conn, cmd, arg...)
-}
-
-func RedisConnGetInt(conn redis.Conn, cmd string, arg ...interface{}) interface{} {
-	value, err := conn.Do(cmd, arg...)
-	CheckFatal(err)
-	if value == nil {
+func RedisGetInt(cmd string, arg ...interface{}) interface{} {
+	value, err := g_RedisPool.doCmd(cmd, arg...)
+	if err != nil {
+		LogError("RedisGetInt Error: %s %v %v", cmd, arg, err)
 		return nil
 	}
 	value, err = redis.Int64(value, err)
@@ -176,15 +175,8 @@ func RedisConnGetInt(conn redis.Conn, cmd string, arg ...interface{}) interface{
 	return value
 }
 
-func RedisGetInt(cmd string, arg ...interface{}) interface{} {
-	conn := GetRedisConn()
-	defer conn.Close()
-
-	return RedisConnGetInt(conn, cmd, arg...)
-}
-
-func RedisConnGetList(conn redis.Conn, cmd string, arg ...interface{}) []string {
-	value_list, err := redis.Values(conn.Do(cmd, arg...))
+func RedisGetList(cmd string, arg ...interface{}) []string {
+	value_list, err := redis.Values(g_RedisPool.doCmd(cmd, arg...))
 	if err != nil {
 		LogError("RedisGetList Error: %s %v %v", cmd, arg, err)
 		return nil
@@ -196,25 +188,11 @@ func RedisConnGetList(conn redis.Conn, cmd string, arg ...interface{}) []string 
 	return result
 }
 
-func RedisGetList(cmd string, arg ...interface{}) []string {
-	conn := GetRedisConn()
-	defer conn.Close()
-
-	return RedisConnGetList(conn, cmd, arg...)
-}
-
-func RedisConnGetMap(conn redis.Conn, cmd string, arg ...interface{}) map[string]string {
-	value, err := redis.StringMap(conn.Do(cmd, arg...))
+func RedisGetMap(cmd string, arg ...interface{}) map[string]string {
+	value, err := redis.StringMap(g_RedisPool.doCmd(cmd, arg...))
 	if err != nil {
 		LogError("RedisGetMap Error: %s %v %v", cmd, arg, err)
 		return nil
 	}
 	return value
-}
-
-func RedisGetMap(cmd string, arg ...interface{}) map[string]string {
-	conn := GetRedisConn()
-	defer conn.Close()
-
-	return RedisConnGetMap(conn, cmd, arg...)
 }
