@@ -71,8 +71,25 @@ func (self *MysqlConnect) Close() {
 	self.db.Close()
 }
 
-func (self *MysqlConnect) Transaction() (*sql.Tx, error) {
-	return self.db.Begin()
+func (self *MysqlConnect) Transaction(txFunc func(*sql.Tx, ...interface{}) error, args ...interface{}) (err error) {
+	tx, err := self.db.Begin()
+	CheckFatal(err)
+	defer func() {
+		if p := recover(); p != nil {
+			tx.Rollback()
+			// re-throw panic after Rollback
+			LogFatal("Transaction Fatal: %v", p)
+		} else if err != nil {
+			tx.Rollback()
+		} else {
+			err = tx.Commit()
+		}
+	}()
+	err = txFunc(tx, args...)
+	if err != nil {
+		LogError("Transaction Error: %v", err)
+	}
+	return err
 }
 
 func (self *MysqlConnect) TransactionExec(sql string, args ...interface{}) (result interface{}, err error) {
@@ -89,6 +106,9 @@ func (self *MysqlConnect) TransactionExec(sql string, args ...interface{}) (resu
 	}()
 
 	result, err = tranx.Exec(sql, args...)
+	if err != nil {
+		LogError("TransactionExec Error: %v", err)
+	}
 	return result, err
 }
 
@@ -142,6 +162,28 @@ func (self *MysqlConnect) Query(sql string, arg ...interface{}) []map[string]int
 	return data
 }
 
+func (self *MysqlConnect) SeekDB(sql string) chan map[string]interface{} {
+	sql = fmt.Sprintf("%s LIMIT ?,?", sql)
+	LogDebug("sql_stmt: %s", sql)
+
+	ch := make(chan map[string]interface{}, 100)
+	go func() {
+		start, seek_cnt := 0, 100
+		for {
+			res := self.Query(sql, start, seek_cnt)
+			if len(res) <= 0 {
+				break
+			}
+			for _, record := range res {
+				ch <- record
+			}
+			start += seek_cnt
+		}
+		ch <- nil
+	}()
+	return ch
+}
+
 func checkDBConn() {
 	if g_MysqlDB == nil {
 		LogFatal("DB Conn is not inited!!!!!")
@@ -193,6 +235,11 @@ func MysqlDelete(sql string, arg ...interface{}) int64 {
 	return num
 }
 
+func MysqlTransaction(f func(*sql.Tx, ...interface{}) error, args ...interface{}) error {
+	checkDBConn()
+	return g_MysqlDB.Transaction(f, args...)
+}
+
 func MysqlTransactionExec(sql string, args ...interface{}) (interface{}, error) {
 	checkDBConn()
 	return g_MysqlDB.TransactionExec(sql, args...)
@@ -200,24 +247,5 @@ func MysqlTransactionExec(sql string, args ...interface{}) (interface{}, error) 
 
 func MysqlSeekDB(sql string) chan map[string]interface{} {
 	checkDBConn()
-
-	sql = fmt.Sprintf("%s LIMIT ?,?", sql)
-	LogDebug("sql_stmt: %s", sql)
-
-	ch := make(chan map[string]interface{}, 100)
-	go func() {
-		start, seek_cnt := 0, 100
-		for {
-			res_list := g_MysqlDB.Query(sql, start, seek_cnt)
-			if len(res_list) <= 0 {
-				break
-			}
-			for _, record := range res_list {
-				ch <- record
-			}
-			start += seek_cnt
-		}
-		ch <- nil
-	}()
-	return ch
+	return g_MysqlDB.SeekDB(sql)
 }
