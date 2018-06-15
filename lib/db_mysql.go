@@ -77,7 +77,6 @@ func (self *MysqlConnect) Transaction(txFunc func(*sql.Tx, ...interface{}) error
 	defer func() {
 		if p := recover(); p != nil {
 			tx.Rollback()
-			// re-throw panic after Rollback
 			LogFatal("Transaction Fatal: %v", p)
 		} else if err != nil {
 			tx.Rollback()
@@ -93,19 +92,22 @@ func (self *MysqlConnect) Transaction(txFunc func(*sql.Tx, ...interface{}) error
 }
 
 func (self *MysqlConnect) TransactionExec(sql string, args ...interface{}) (result interface{}, err error) {
-	tranx, err := self.db.Begin()
+	tx, err := self.db.Begin()
 	if err != nil {
 		return nil, err
 	}
 	defer func() {
-		if err != nil {
-			tranx.Rollback()
-			return
+		if p := recover(); p != nil {
+			tx.Rollback()
+			LogFatal("TransactionExec Fatal: %v", p)
+		} else if err != nil {
+			tx.Rollback()
+		} else {
+			err = tx.Commit()
 		}
-		err = tranx.Commit()
 	}()
 
-	result, err = tranx.Exec(sql, args...)
+	result, err = tx.Exec(sql, args...)
 	if err != nil {
 		LogError("TransactionExec Error: %v", err)
 	}
@@ -166,9 +168,10 @@ func (self *MysqlConnect) SeekDB(sql string) chan map[string]interface{} {
 	sql = fmt.Sprintf("%s LIMIT ?,?", sql)
 	LogDebug("sql_stmt: %s", sql)
 
-	ch := make(chan map[string]interface{}, 100)
+	cache_size := 10000
+	ch := make(chan map[string]interface{}, cache_size)
 	go func() {
-		start, seek_cnt := 0, 100
+		start, seek_cnt := 0, cache_size
 		for {
 			res := self.Query(sql, start, seek_cnt)
 			if len(res) <= 0 {
