@@ -14,218 +14,95 @@ import (
 	rabbitmq "github.com/streadway/amqp"
 
 	. "github.com/ubrabbit/go-common/common"
-	. "github.com/ubrabbit/go-common/config"
 )
 
-type RabbitMsgReceiver struct {
-	Name     string
-	Receiver func(b []byte) (bool, error)
+type RabbitMsgReceiver interface {
+	OnConfirmMessage(uint64, bool)
+	OnReceiveMessage([]byte) (bool, bool)
 }
 
 type RabbitMQSession struct {
 	sync.Mutex
 
+	Account  string
+	Password string
+	Host     string
+	HostName string
+	Port     int
+
 	Name         string
+	QueueName    string
 	Exchange     string
 	ExchangeType string
+	RouterKey    string
 	Conn         *rabbitmq.Connection
 	Channel      *rabbitmq.Channel
 	Queue        *rabbitmq.Queue
 
-	waitPushConfirm chan rabbitmq.Confirmation
-	OnPushConfirm   Functor
-
-	OnReceiver  func([]byte, bool, error) (bool, bool)
-	MsgReceiver map[string]*RabbitMsgReceiver
-
-	connectRetry int
-	shutdown     bool
-	closed       bool
-	err          error
-	errNotify    string
+	onMessageHandle interface{}
+	isClosed        bool
 }
 
-func failOnError(err error, msg string) {
-	if err != nil {
-		LogFatal("%s: %s", msg, err)
-	}
-}
-
-func InitRabbitMQ() *RabbitMQConfig {
-	cfg := GetRabbitMQConfig()
-	if cfg == nil {
-		LogInfo("rabbitmq conf is nil, use default setting")
-		cfg = new(RabbitMQConfig)
-		cfg.Account = "guest"
-		cfg.Password = "guest"
-		cfg.Host = "127.0.0.1"
-		cfg.HostName = ""
-		cfg.Port = 5672
-	}
-	return cfg
-}
-
-func ConnRabbitMQ() (*rabbitmq.Connection, error) {
-	cfg := InitRabbitMQ()
-	account := cfg.Account
-	password := cfg.Password
-	host := cfg.Host
-	hostname := cfg.HostName
-	port := cfg.Port
-
-	LogInfo("Connect RabbitMQ %s:%d:%s", host, port, hostname)
-	// 初始化 参数格式：amqp://用户名:密码@地址:端口号/host
-	server := fmt.Sprintf("amqp://%s:%s@%s:%d/%s", account, password, host, port, hostname)
-	conn, err := rabbitmq.Dial(server)
-	if err != nil {
-		LogError("Connect RabbitMQ Error: %v", err)
-		return nil, err
-	}
-	LogInfo("Connect RabbitMQ Success")
-	return conn, err
-}
-
-func NewRabbitMQSession(q string) *RabbitMQSession {
+func NewRabbitMQSession(name string, qname string, ex string, extype string, router string) *RabbitMQSession {
 	session := new(RabbitMQSession)
-	session.Name = q
-	session.Exchange = q
-	session.ExchangeType = "fanout"
+	session.Name = name
+	session.QueueName = qname
+	session.Exchange = ex
+	session.ExchangeType = extype
+	if router != "" {
+		session.RouterKey = router
+	} else {
+		session.RouterKey = ex
+	}
 
 	session.Conn = nil
 	session.Channel = nil
 	session.Queue = nil
 
-	session.connectRetry = 0
-	session.shutdown = false
-	session.closed = true
-	session.err = nil
-	session.errNotify = ""
-
-	session.waitPushConfirm = nil
-	session.OnPushConfirm = nil
-
-	session.OnReceiver = nil
-	session.MsgReceiver = make(map[string]*RabbitMsgReceiver)
+	session.onMessageHandle = nil
+	session.isClosed = false
 	return session
 }
 
-func (session *RabbitMQSession) setError(err error, desc string) {
-	session.closed = true
-	session.err = err
-	session.errNotify = desc
+func (self *RabbitMQSession) String() string {
+	return fmt.Sprintf("[RabbitMQ][%s-%s-%s-%s]", self.Name, self.QueueName, self.Exchange, self.ExchangeType)
 }
 
-func (session *RabbitMQSession) SetConnectRetry(i int) {
-	session.connectRetry = i
+func (self *RabbitMQSession) Init(acct string, pwd string, host string, port int, hostname string, handle interface{}) {
+	self.Account = acct
+	self.Password = pwd
+	self.Host = host
+	self.HostName = hostname
+	self.Port = port
+	self.onMessageHandle = handle
 }
 
-func (session *RabbitMQSession) SetExchange(name string, t string) {
-	last, last_t := session.Exchange, session.ExchangeType
-	session.Exchange = name
-	session.ExchangeType = name
-	if last != name || last_t != t {
-		LogInfo("reconnect by exchange changed")
-		session.reconnectSession()
-	}
-}
-
-func (session *RabbitMQSession) GetExchange() (string, string) {
-	return session.Exchange, session.ExchangeType
-}
-
-func (session *RabbitMQSession) Connect() error {
+func (self *RabbitMQSession) Close() (err error) {
 	defer func() {
-		err := recover()
-		if err != nil {
-			LogError("Connect Err:  %v", err)
+		p := recover()
+		if p != nil {
+			err = fmt.Errorf("Close Error: %v", p)
+			LogError("%s : %v", self, err)
 		}
 	}()
 
-	conn, err := ConnRabbitMQ()
-	if err != nil {
-		return err
-	}
-
-	channel, err := conn.Channel()
-	if err != nil {
-		return err
-	}
-
-	ex, extype := session.GetExchange()
-	if err = channel.ExchangeDeclare(
-		ex,     // name of the exchange
-		extype, // type
-		true,   // durable
-		false,  // delete when complete
-		false,  // internal
-		false,  // noWait
-		nil,    // arguments
-	); err != nil {
-		return err
-	}
-
-	//channel.QueueDelete(name, ifUnused, ifEmpty, noWait)
-	queue, err := channel.QueueDeclare(
-		session.Name, // name
-		true,         // durable    持久化标识
-		false,        // delete when unused
-		false,        // exclusive
-		false,        // no-wait
-		nil,          // arguments
-	)
-	if err != nil {
-		return err
-	}
-
-	session.closed = false
-	session.err = nil
-	session.errNotify = ""
-	session.Conn = conn
-	session.Channel = channel
-	session.Queue = &queue
-
-	session.waitPushConfirm = channel.NotifyPublish(make(chan rabbitmq.Confirmation, 1))
-	if session.OnPushConfirm != nil {
-		session.SetPushConfirm(session.OnPushConfirm)
-	}
+	//关闭阶段不处理断线的异常
+	self.disconnect()
+	self.isClosed = true
+	LogInfo("%s Closed", self)
 	return nil
 }
 
-func (session *RabbitMQSession) reconnectSession() (bool, error) {
-	if session.IsShutdown() {
-		return false, nil
-	}
-	session.Lock()
-	defer session.Unlock()
-
-	session.Close()
-	retry := 0
-	for {
-		if session.connectRetry > 0 {
-			if retry >= session.connectRetry {
-				break
-			}
-			retry++
-		}
-		time.Sleep(time.Second * 1)
-		LogInfo("try reconnect rabbitmq")
-		err := session.Connect()
-		if err != nil {
-			LogError("reconnect rabbitmq error: %v", err)
-			continue
-		}
-		LogInfo("success reconnect rabbitmq")
-		return true, nil
-	}
-	return false, errors.New("fail reconnect rabbitmq")
+func (self *RabbitMQSession) IsClosed() bool {
+	return self.isClosed
 }
 
-func (session *RabbitMQSession) Ping() error {
-	if session.Conn == nil || session.Channel == nil {
+func (self *RabbitMQSession) Ping() error {
+	if self.Conn == nil || self.Channel == nil {
 		return rabbitmq.ErrClosed
 	}
 
-	channel := session.Channel
+	channel := self.Channel
 	err := channel.ExchangeDeclare("ping.ping", "topic", false, true, false, true, nil)
 	if err != nil {
 		return err
@@ -244,64 +121,147 @@ func (session *RabbitMQSession) Ping() error {
 	return err
 }
 
-func (session *RabbitMQSession) AddReceiver(name string, f func(b []byte) (bool, error)) bool {
-	session.Lock()
-	defer session.Unlock()
-
-	o_recv := new(RabbitMsgReceiver)
-	o_recv.Name = name
-	o_recv.Receiver = f
-
-	session.OnReceiver = nil
-	session.MsgReceiver[name] = o_recv
-	return true
-}
-
-func (session *RabbitMQSession) RemoveReceiver(name string) bool {
-	session.Lock()
-	defer session.Unlock()
-
-	_, ok := session.MsgReceiver[name]
-	if ok {
-		delete(session.MsgReceiver, name)
-		return true
+func (self *RabbitMQSession) ResetExchange(name string, t string) {
+	last, last_t := self.Exchange, self.ExchangeType
+	self.Exchange = name
+	self.ExchangeType = name
+	if last != name || last_t != t {
+		LogInfo("reconnect by exchange changed")
+		self.reconnect()
 	}
-	return false
 }
 
-func (session *RabbitMQSession) ExecuteReceiver(body []byte) (bool, error) {
-	session.Lock()
+func (self *RabbitMQSession) disconnect() (err error) {
+	self.Lock()
 	defer func() {
-		session.Unlock()
+		p := recover()
+		if p != nil {
+			err = fmt.Errorf("Disconnect Error: %v", p)
+			LogError("%s : %v", self, err)
+		}
+		self.Unlock()
+	}()
+
+	if self.Channel != nil {
+		// will close() the deliveries channel
+		if err := self.Channel.Cancel(self.QueueName, false); err != nil {
+			LogError("%s Cancel %s Error: %v", self, self.QueueName, err)
+			return fmt.Errorf("Consumer cancel failed: %s", err)
+		}
+		self.Channel.Close()
+		self.Channel = nil
+	}
+	if self.Conn != nil {
+		if err := self.Conn.Close(); err != nil {
+			LogError("%s Close Conn Error: %v", self, err)
+			return fmt.Errorf("AMQP connection close error: %s", err)
+		}
+		self.Conn = nil
+		LogInfo("%s Disconnect", self)
+	}
+	return nil
+}
+
+func (self *RabbitMQSession) connect() error {
+	self.Lock()
+	defer func() {
 		err := recover()
 		if err != nil {
-			LogError("ExecuteReceiver Error: %v", err)
+			LogError("Connect Err:  %v", err)
 		}
+		self.Unlock()
 	}()
-	for name := range session.MsgReceiver {
-		recever := session.MsgReceiver[name]
-		_, err := recever.Receiver(body)
-		if err != nil {
-			LogError("Receiver %s Error: %v", recever.Name, err)
-		}
+	if self.IsClosed() {
+		return rabbitmq.ErrClosed
 	}
-	return true, nil
+	account := self.Account
+	password := self.Password
+	host := self.Host
+	hostname := self.HostName
+	port := self.Port
+
+	LogInfo("%s Connect RabbitMQ %s:%d:%s", self, host, port, hostname)
+	// 初始化 参数格式：amqp://用户名:密码@地址:端口号/host
+	server := fmt.Sprintf("amqp://%s:%s@%s:%d/%s", account, password, host, port, hostname)
+	conn, err := rabbitmq.Dial(server)
+	if err != nil {
+		LogError("Connect RabbitMQ Error: %v", err)
+		return err
+	}
+	LogInfo("%s Connect RabbitMQ Success", self)
+
+	channel, err := conn.Channel()
+	if err != nil {
+		LogDebug("Channel Error: %v", err)
+		return err
+	}
+
+	ex, extype := self.Exchange, self.ExchangeType
+	if err = channel.ExchangeDeclare(
+		ex,     // name of the exchange
+		extype, // type
+		true,   // durable
+		false,  // delete when complete
+		false,  // internal
+		false,  // noWait
+		nil,    // arguments
+	); err != nil {
+		LogDebug("ExchangeDeclare '%s' '%s' Error: %v", ex, extype, err)
+		return err
+	}
+
+	//channel.QueueDelete(name, ifUnused, ifEmpty, noWait)
+	queue, err := channel.QueueDeclare(
+		self.QueueName, // name
+		true,           // durable    持久化标识
+		false,          // delete when unused
+		false,          // exclusive
+		false,          // no-wait
+		nil,            // arguments
+	)
+	if err != nil {
+		LogDebug("QueueDeclare '%s' Error: %v", self.QueueName, err)
+		return err
+	}
+
+	self.Conn = conn
+	self.Channel = channel
+	self.Queue = &queue
+
+	go self.confirmPushMsg(channel.NotifyPublish(make(chan rabbitmq.Confirmation, 1)))
+	return nil
 }
 
-func (session *RabbitMQSession) RegisterOnReceiver(f func([]byte, bool, error) (bool, bool)) {
-	session.Lock()
-	defer session.Unlock()
-
-	session.OnReceiver = f
+func (self *RabbitMQSession) reconnect() error {
+	for {
+		self.disconnect()
+		if self.IsClosed() {
+			return rabbitmq.ErrClosed
+		}
+		time.Sleep(time.Second * 1)
+		LogInfo("%s reconnect", self)
+		err := self.connect()
+		if err != nil {
+			LogError("%s reconnect error: %v", self, err)
+			continue
+		}
+		err = self.Ping()
+		if err != nil {
+			LogError("%s reconnect ping error: %v", self, err)
+			continue
+		}
+		LogInfo("%s reconnect success", self)
+		return nil
+	}
+	return errors.New(fmt.Sprintf("%s fail reconnect", self))
 }
 
-func (session *RabbitMQSession) publishMsg(data []byte, save bool) error {
-	if session.Channel == nil {
+func (self *RabbitMQSession) publish(data []byte, save bool) error {
+	if self.Channel == nil {
 		return fmt.Errorf("publishMsg Error by channel is nil")
 	}
-
-	exchange, exchangeType := session.GetExchange()
-	if err := session.Channel.ExchangeDeclare(
+	exchange, exchangeType, router := self.Exchange, self.ExchangeType, self.RouterKey
+	if err := self.Channel.ExchangeDeclare(
 		exchange,     // name
 		exchangeType, // type
 		true,         // durable
@@ -317,11 +277,11 @@ func (session *RabbitMQSession) publishMsg(data []byte, save bool) error {
 	if save {
 		mod = rabbitmq.Persistent // 持久化标记
 	}
-	err := session.Channel.Publish(
-		exchange,           // exchange
-		session.Queue.Name, // routing key
-		false,              // mandatory
-		false,              // immediate
+	err := self.Channel.Publish(
+		exchange, // exchange
+		router,   // routing key
+		false,    // mandatory
+		false,    // immediate
 		rabbitmq.Publishing{
 			ContentType:  "text/plain",
 			Body:         data,
@@ -330,181 +290,113 @@ func (session *RabbitMQSession) publishMsg(data []byte, save bool) error {
 	return err
 }
 
-func (session *RabbitMQSession) confirmPushMsg() {
-	LogInfo("waiting for confirmMsg")
+func (self *RabbitMQSession) confirmPushMsg(c chan rabbitmq.Confirmation) {
+	LogInfo("%s waiting confirmPushMsg", self)
 	for {
-		confirmed, ok := <-session.waitPushConfirm
+		confirmed, ok := <-c
 		if !ok {
-			LogInfo("break confirmMsg by waitPushConfirm closed")
+			LogInfo("%s break confirmPushMsg by closed", self)
 			break
 		}
-		session.OnPushConfirm.Call(confirmed.DeliveryTag, confirmed.Ack)
+		self.onMessageHandle.(RabbitMsgReceiver).OnConfirmMessage(confirmed.DeliveryTag, confirmed.Ack)
 	}
 }
 
-func (session *RabbitMQSession) SetPushConfirm(f Functor) {
-	if session.Channel == nil {
-		session.OnPushConfirm = f
-		return
-	}
-	LogInfo("enabling publishing confirms.")
-	if err := session.Channel.Confirm(false); err != nil {
-		fmt.Errorf("Channel could not be put into confirm mode: %s", err)
-		return
-	}
-	if f == nil {
-		session.OnPushConfirm = nil
-		return
-	}
-	session.OnPushConfirm = f
-	go session.confirmPushMsg()
-}
-
-func (session *RabbitMQSession) PushMsg(data []byte) bool {
+func (self *RabbitMQSession) PushMsg(data []byte) bool {
 	for {
-		err := session.publishMsg(data, true)
+		if self.IsClosed() {
+			break
+		}
+		err := self.publish(data, true)
+		if err != nil {
+			LogError("%s PushMsg Error: %v", self, err)
+			err := self.reconnect()
+			if err != nil {
+				LogError("Failed to push message: %s", string(data))
+				break
+			}
+		}
+		LogDebug("%s PushMsg: %s", self, string(data))
+		return true
+	}
+	return false
+}
+
+func (self *RabbitMQSession) PushMsgNoSave(data []byte) bool {
+	for {
+		if self.IsClosed() {
+			break
+		}
+		err := self.publish(data, false)
 		if err != nil {
 			LogError("pushMsg Error: %v", err)
-			succ, err := session.reconnectSession()
-			if succ {
-				continue
+			err := self.reconnect()
+			if err != nil {
+				LogError("Failed to push message: %s", string(data))
+				break
 			}
-			msg := JoinString("", "Failed to push message: ", string(data))
-			session.setError(err, msg)
-			if !session.IsShutdown() {
-				LogFatal("%s reason: %s", msg, err.Error())
-			}
-			break
 		}
+		LogDebug("PushMsgNoSave: %s", string(data))
 		return true
 	}
 	return false
 }
 
-func (session *RabbitMQSession) PushMsgNoSave(data []byte) bool {
+func (self *RabbitMQSession) StartProducer() {
+	self.connect()
+}
+
+func (self *RabbitMQSession) StartConsumer() {
 	for {
-		err := session.publishMsg(data, false)
+		self.Lock()
+		if self.IsClosed() {
+			LogInfo("Consumer finished by closed")
+			self.Unlock()
+			break
+		}
+		self.Unlock()
+
+		err := self.reconnect()
 		if err != nil {
-			LogError("pushMsg Error: %v", err)
-			succ, err := session.reconnectSession()
-			if succ {
-				continue
-			}
-			msg := JoinString("", "Failed to push message: ", string(data))
-			session.setError(err, msg)
-			break
-		}
-		return true
-	}
-	return false
-}
-
-func (session *RabbitMQSession) Close() error {
-	defer func() {
-		err := recover()
-		if err != nil {
-			LogError("Close Error: %v", err)
-		}
-	}()
-
-	if session.Conn == nil {
-		return nil
-	}
-	// will close() the deliveries channel
-	if err := session.Channel.Cancel(session.Name, true); err != nil {
-		return fmt.Errorf("Consumer cancel failed: %s", err)
-	}
-	if err := session.Conn.Close(); err != nil {
-		return fmt.Errorf("AMQP connection close error: %s", err)
-	}
-	session.closed = true
-	return nil
-}
-
-func (session *RabbitMQSession) IsClosed() bool {
-	if session.IsShutdown() {
-		return true
-	}
-	if session.closed {
-		return true
-	}
-
-	err := session.Ping()
-	if err != nil {
-		session.setError(err, "Ping Error")
-		session.Close()
-		return true
-	}
-	return false
-}
-
-func (session *RabbitMQSession) Shutdown() {
-	session.Lock()
-	defer session.Unlock()
-	session.shutdown = true
-	session.Close()
-}
-
-func (session *RabbitMQSession) IsShutdown() bool {
-	return session.shutdown
-}
-
-func (session *RabbitMQSession) ConsumeMsg() {
-	for {
-		if session.IsShutdown() {
-			LogInfo("rabbitmq consumer finished by shutdown")
-			break
-		}
-		ok, _ := session.reconnectSession()
-		if !ok {
-			LogInfo("rabbitmq consumer finished by connect failure")
+			LogInfo("Consumer finished by connect failure: %v", err)
 			break
 		}
 
-		ex, _ := session.GetExchange()
-		if err := session.Channel.QueueBind(
-			session.Name, // name of the queue
-			"",           // bindingKey
-			ex,           // sourceExchange
-			false,        // noWait
-			nil,          // arguments
+		ex := self.Exchange
+		if err = self.Channel.QueueBind(
+			self.QueueName, // name of the queue
+			"",             // bindingKey
+			ex,             // sourceExchange
+			false,          // noWait
+			nil,            // arguments
 		); err != nil {
-			msg := "Failed to Queue Bind"
-			LogError(msg)
-			session.setError(fmt.Errorf("Queue Bind: %s", err), msg)
+			LogError("Consumer Failed To Queue Bind")
 			continue
 		}
 
-		ch_msgs, err := session.Channel.Consume(
-			session.Queue.Name, // queue
-			session.Queue.Name, // consumerTag,
-			false,              // auto-ack
-			false,              // exclusive
-			false,              // no-local
-			false,              // no-wait
-			nil,                // args
+		ch_msgs, err := self.Channel.Consume(
+			self.Queue.Name, // queue
+			self.Queue.Name, // consumerTag,
+			false,           // auto-ack
+			false,           // exclusive
+			false,           // no-local
+			false,           // no-wait
+			nil,             // args
 		)
 		if err != nil {
-			msg := "Failed to create Consume"
-			LogError(msg)
-			session.setError(err, msg)
+			LogError("Consumer Failed To Create Consume")
 			continue
 		}
-		LogDebug(">>>>>>>>>>> start consumer")
+		LogDebug("%s >>>>>>>>>>> start consumer", self)
 		for msg := range ch_msgs {
 			LogDebug(
-				"got %dB delivery: [%v] %q",
+				"%s got %dB delivery: [%v] %q",
+				self,
 				len(msg.Body),
 				msg.DeliveryTag,
 				msg.Body,
 			)
-
-			succ, err := session.ExecuteReceiver(msg.Body)
-			ack := true
-			requeue := false
-			if session.OnReceiver != nil {
-				ack, requeue = session.OnReceiver(msg.Body, succ, err)
-			}
+			ack, requeue := self.onMessageHandle.(RabbitMsgReceiver).OnReceiveMessage(msg.Body)
 			if ack {
 				// 确认收到本条消息, multiple必须为false
 				msg.Ack(false)
@@ -512,6 +404,6 @@ func (session *RabbitMQSession) ConsumeMsg() {
 				msg.Nack(false, requeue)
 			}
 		}
-		LogDebug(">>>>>>>>>>> finished consumer")
+		LogDebug("%s >>>>>>>>>>> finished consumer", self)
 	}
 }

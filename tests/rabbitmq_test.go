@@ -9,47 +9,50 @@ import (
 	"time"
 )
 
-func ReceiverFunc1(b []byte) (bool, error) {
-	LogInfo("ReceiverFunc1: %s", string(b))
-	return true, nil
+type RabbitMQCmd struct {
+	Name string
 }
 
-func ReceiverFunc2(b []byte) (bool, error) {
-	LogInfo("ReceiverFunc2: %s", string(b))
-	return true, nil
+func (self *RabbitMQCmd) OnConfirmMessage(v uint64, b bool) {
+	LogInfo("%s OnConfirmMessage: %d %v,", self.Name, v, b)
 }
 
-func OnConfirm(args ...interface{}) {
-	par1 := args[0].(int)
-	par2 := args[1].(string)
-	tag := args[2].(uint64)
-	ack := args[3].(bool)
-
-	LogInfo("OnConfirm : %d %s", tag, ack, par1, par2)
+func (self *RabbitMQCmd) OnReceiveMessage(b []byte) (bool, bool) {
+	LogInfo("%s OnReceiveMessage: %s", self.Name, string(b))
+	return true, false
 }
 
 func TestRabbitMQ_Consumer(t *testing.T) {
 	fmt.Printf("\n\n=====================  TestRabbitMQ_Consumer  =====================\n")
 
 	config.InitConfig("config_test.conf")
+	config.InitRabbitMQConfig()
+	cfg := config.GetRabbitMQConfig()
 
-	session := lib.NewRabbitMQSession("test")
-	session.AddReceiver("test", ReceiverFunc1)
-	session.AddReceiver("test2", ReceiverFunc2)
+	handle := &RabbitMQCmd{Name: "Consumer"}
+	session := lib.NewRabbitMQSession("Consumer", "test", "test", "fanout", "")
+	session.Init(cfg.Account, cfg.Password, cfg.Host, cfg.Port, cfg.HostName, handle)
+	go session.StartConsumer()
 
 	go func() {
-		session.ConsumeMsg()
+		time.Sleep(5 * time.Second)
+		LogInfo("Close %s", session)
+		session.Close()
 	}()
-	time.Sleep(1 * time.Second)
-
 }
 
 func TestRabbitMQ_Producer(t *testing.T) {
 	fmt.Printf("\n\n=====================  TestRabbitMQ_Producer  =====================\n")
 
 	config.InitConfig("config_test.conf")
-	session := lib.NewRabbitMQSession("test")
-	session.SetPushConfirm(NewFunctor("callback", OnConfirm, 1, "2"))
+	config.InitRabbitMQConfig()
+	cfg := config.GetRabbitMQConfig()
+
+	handle := &RabbitMQCmd{Name: "Producer"}
+	session := lib.NewRabbitMQSession("Producer", "test", "test", "fanout", "")
+	session.Init(cfg.Account, cfg.Password, cfg.Host, cfg.Port, cfg.HostName, handle)
+	session.StartProducer()
+
 	go func() {
 		i := 0
 		for {
@@ -60,5 +63,5 @@ func TestRabbitMQ_Producer(t *testing.T) {
 		}
 	}()
 
-	time.Sleep(1 * time.Second)
+	time.Sleep(10 * time.Second)
 }

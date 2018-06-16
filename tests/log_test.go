@@ -19,4 +19,6 @@ func TestLog(t *testing.T) {
 
 	log.Debug("Debug Log 333")
 	log.Release("Release Log 333")
+
+	log.InitLogger("debug", "")
 }
