@@ -118,6 +118,7 @@ func (self *RedisPool) GetConn() redis.Conn {
 	if conn != nil {
 		return conn
 	}
+	LogError("Redis Pool Cant Get Conn")
 	if self.conn == nil {
 		LogFatal("DB RedisConn %v is not inited!", self.conn)
 	}
@@ -178,8 +179,26 @@ func RedisGetList(cmd string, arg ...interface{}) []string {
 	return result
 }
 
-func RedisGetMap(cmd string, arg ...interface{}) map[string]string {
+func RedisGetStringMap(cmd string, arg ...interface{}) map[string]string {
 	value, err := redis.StringMap(g_RedisPool.doCmd(cmd, arg...))
+	if err != nil {
+		LogFatal("RedisGetMap Error: %s %v %v", cmd, arg, err)
+		return nil
+	}
+	return value
+}
+
+func RedisGetIntMap(cmd string, arg ...interface{}) map[string]int {
+	value, err := redis.IntMap(g_RedisPool.doCmd(cmd, arg...))
+	if err != nil {
+		LogFatal("RedisGetMap Error: %s %v %v", cmd, arg, err)
+		return nil
+	}
+	return value
+}
+
+func RedisGetInt64Map(cmd string, arg ...interface{}) map[string]int64 {
+	value, err := redis.Int64Map(g_RedisPool.doCmd(cmd, arg...))
 	if err != nil {
 		LogFatal("RedisGetMap Error: %s %v %v", cmd, arg, err)
 		return nil
