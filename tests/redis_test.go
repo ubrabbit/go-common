@@ -36,3 +36,23 @@ func TestRedis(t *testing.T) {
 
 	pool.Close()
 }
+
+func TestRedis2(t *testing.T) {
+	fmt.Printf("\n\n=====================  TestRedis2  =====================\n")
+	cfg := config.GetRedisConfig()
+	pool := lib.InitRedis(cfg.IP, cfg.Port)
+
+	lib.RedisExec("del", "Score")
+	lib.RedisExec("del", "Score_NotExists")
+	lib.RedisExec("del", "Name")
+	lib.RedisExec("del", "LIST")
+	pool.Close()
+
+	defer func() {
+		err := recover()
+		if err != nil {
+			fmt.Printf("Redis Error By Closed: %v\n", err)
+		}
+	}()
+	lib.RedisGetString("get", "Name")
+}

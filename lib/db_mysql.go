@@ -77,7 +77,7 @@ func (self *MysqlConnect) Transaction(txFunc func(*sql.Tx, ...interface{}) error
 	defer func() {
 		if p := recover(); p != nil {
 			tx.Rollback()
-			LogFatal("Transaction Fatal: %v", p)
+			LogPanic("Transaction Fatal: %v", p)
 		} else if err != nil {
 			tx.Rollback()
 		} else {
@@ -99,7 +99,7 @@ func (self *MysqlConnect) TransactionExec(sql string, args ...interface{}) (resu
 	defer func() {
 		if p := recover(); p != nil {
 			tx.Rollback()
-			LogFatal("TransactionExec Fatal: %v", p)
+			LogPanic("TransactionExec Fatal: %v", p)
 		} else if err != nil {
 			tx.Rollback()
 		} else {

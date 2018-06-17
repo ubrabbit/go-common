@@ -1,6 +1,7 @@
 package common
 
 import (
+	"fmt"
 	log "github.com/ubrabbit/go-common/log"
 	debug "github.com/ubrabbit/go-debug"
 )
@@ -16,6 +17,12 @@ func LogDebug(format string, v ...interface{}) {
 
 func LogInfo(format string, v ...interface{}) {
 	log.Release(format, v...)
+}
+
+func LogPanic(format string, v ...interface{}) {
+	st := debug.StackTrace(0)
+	log.Error(st.String("    "))
+	panic(fmt.Sprintf(format, v...))
 }
 
 func LogFatal(format string, v ...interface{}) {

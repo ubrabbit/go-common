@@ -8,7 +8,6 @@ REDIS pool的使用
 */
 
 import (
-	"errors"
 	"fmt"
 	"time"
 )
@@ -45,20 +44,13 @@ func newRedisPool(host string) *redis.Pool {
 			ch := make(chan poolDial)
 			defer close(ch)
 			go func() {
-				wait := 0
 				for {
-					if wait >= 60 {
-						err := errors.New("fatal: redis pool want to connect db, but wait too long")
-						ch <- poolDial{nil, err}
-						break
-					}
-					//在短期高并发导致端口用尽时，会报 cannot assign requested address 错误
+					//在短期高并发导致端口用尽时，会报 cannot assign requested address 或 too many open files 错误
 					//所以需要用chan等待连接释放
 					c, err := redis.Dial("tcp", host)
 					if err != nil {
 						LogError("Connect Redis Error: %v", err)
 						time.Sleep(1 * time.Second)
-						wait++
 						continue
 					}
 					ch <- poolDial{c, err}
@@ -113,25 +105,27 @@ func (self *RedisPool) Close() {
 	self.pool.Close()
 }
 
-func (self *RedisPool) GetConn() redis.Conn {
+func (self *RedisPool) GetConn() (redis.Conn, error) {
 	conn := self.pool.Get()
 	if conn != nil {
-		return conn
+		return conn, nil
 	}
 	LogError("Redis Pool Cant Get Conn")
 	if self.conn == nil {
-		LogFatal("DB RedisConn %v is not inited!", self.conn)
+		return nil, fmt.Errorf("DB RedisConn %v is not inited!", self.conn)
 	}
 	_, err := self.conn.Do("PING")
 	if err != nil {
-		LogFatal("DB RedisConn %v is not alived!", self.conn)
-		return nil
+		return nil, fmt.Errorf("DB RedisConn %v is not alived!", self.conn)
 	}
-	return self.conn
+	return self.conn, nil
 }
 
 func (self *RedisPool) doCmd(cmd string, arg ...interface{}) (interface{}, error) {
-	conn := self.GetConn()
+	conn, err := self.GetConn()
+	if err != nil {
+		return nil, err
+	}
 	//不加这行语句会导致死锁
 	//比如同一个函数执行了两次 RedisExec，但获取的是不同的conn的情况
 	defer conn.Close()
@@ -142,7 +136,7 @@ func (self *RedisPool) doCmd(cmd string, arg ...interface{}) (interface{}, error
 func RedisExec(cmd string, arg ...interface{}) interface{} {
 	result, err := g_RedisPool.doCmd(cmd, arg...)
 	if err != nil {
-		LogFatal("RedisExec Error: %s %v %v", cmd, arg, err)
+		LogPanic("RedisExec Error: %s %v %v", cmd, arg, err)
 		return nil
 	}
 	return result
@@ -151,7 +145,7 @@ func RedisExec(cmd string, arg ...interface{}) interface{} {
 func RedisGetString(cmd string, arg ...interface{}) interface{} {
 	value, err := redis.String(g_RedisPool.doCmd(cmd, arg...))
 	if err != nil {
-		LogFatal("RedisGetString Error: %s %v %v", cmd, arg, err)
+		LogPanic("RedisGetString Error: %s %v %v", cmd, arg, err)
 		return nil
 	}
 	return value
@@ -160,7 +154,7 @@ func RedisGetString(cmd string, arg ...interface{}) interface{} {
 func RedisGetInt(cmd string, arg ...interface{}) interface{} {
 	value, err := redis.Int64(g_RedisPool.doCmd(cmd, arg...))
 	if err != nil {
-		LogFatal("RedisGetInt Error: %s %v %v", cmd, arg, err)
+		LogPanic("RedisGetInt Error: %s %v %v", cmd, arg, err)
 		return nil
 	}
 	return value
@@ -169,7 +163,7 @@ func RedisGetInt(cmd string, arg ...interface{}) interface{} {
 func RedisGetList(cmd string, arg ...interface{}) []string {
 	value_list, err := redis.Values(g_RedisPool.doCmd(cmd, arg...))
 	if err != nil {
-		LogFatal("RedisGetList Error: %s %v %v", cmd, arg, err)
+		LogPanic("RedisGetList Error: %s %v %v", cmd, arg, err)
 		return nil
 	}
 	result := make([]string, 0)
@@ -182,7 +176,7 @@ func RedisGetList(cmd string, arg ...interface{}) []string {
 func RedisGetStringMap(cmd string, arg ...interface{}) map[string]string {
 	value, err := redis.StringMap(g_RedisPool.doCmd(cmd, arg...))
 	if err != nil {
-		LogFatal("RedisGetMap Error: %s %v %v", cmd, arg, err)
+		LogPanic("RedisGetMap Error: %s %v %v", cmd, arg, err)
 		return nil
 	}
 	return value
@@ -191,7 +185,7 @@ func RedisGetStringMap(cmd string, arg ...interface{}) map[string]string {
 func RedisGetIntMap(cmd string, arg ...interface{}) map[string]int {
 	value, err := redis.IntMap(g_RedisPool.doCmd(cmd, arg...))
 	if err != nil {
-		LogFatal("RedisGetMap Error: %s %v %v", cmd, arg, err)
+		LogPanic("RedisGetMap Error: %s %v %v", cmd, arg, err)
 		return nil
 	}
 	return value
@@ -200,7 +194,7 @@ func RedisGetIntMap(cmd string, arg ...interface{}) map[string]int {
 func RedisGetInt64Map(cmd string, arg ...interface{}) map[string]int64 {
 	value, err := redis.Int64Map(g_RedisPool.doCmd(cmd, arg...))
 	if err != nil {
-		LogFatal("RedisGetMap Error: %s %v %v", cmd, arg, err)
+		LogPanic("RedisGetMap Error: %s %v %v", cmd, arg, err)
 		return nil
 	}
 	return value
