@@ -2,9 +2,11 @@ package common
 
 import (
 	log "github.com/ubrabbit/go-common/log"
+	debug "github.com/ubrabbit/go-debug"
 )
 
 func LogError(format string, v ...interface{}) {
+	debug.Print(v...)
 	log.Error(format, v...)
 }
 
@@ -17,5 +19,7 @@ func LogInfo(format string, v ...interface{}) {
 }
 
 func LogFatal(format string, v ...interface{}) {
+	st := debug.StackTrace(0)
+	log.Error(st.String("    "))
 	log.Fatal(format, v...)
 }

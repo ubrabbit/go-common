@@ -228,7 +228,12 @@ func (self *RabbitMQSession) connect() error {
 	self.Channel = channel
 	self.Queue = &queue
 
-	go self.confirmPushMsg(channel.NotifyPublish(make(chan rabbitmq.Confirmation, 1)))
+	if err = self.Channel.Confirm(false); err != nil {
+		LogError("%s SetConfirm Error: %v", self, err)
+		return err
+	}
+	confirm := channel.NotifyPublish(make(chan rabbitmq.Confirmation, 1))
+	go self.confirmPushMsg(confirm)
 	return nil
 }
 
@@ -257,6 +262,12 @@ func (self *RabbitMQSession) reconnect() error {
 }
 
 func (self *RabbitMQSession) publish(data []byte, save bool) error {
+	self.Lock()
+	defer self.Unlock()
+
+	if self.IsClosed() {
+		return rabbitmq.ErrClosed
+	}
 	if self.Channel == nil {
 		return fmt.Errorf("publishMsg Error by channel is nil")
 	}
@@ -298,15 +309,14 @@ func (self *RabbitMQSession) confirmPushMsg(c chan rabbitmq.Confirmation) {
 			LogInfo("%s break confirmPushMsg by closed", self)
 			break
 		}
-		self.onMessageHandle.(RabbitMsgReceiver).OnConfirmMessage(confirmed.DeliveryTag, confirmed.Ack)
+		if self.onMessageHandle != nil {
+			self.onMessageHandle.(RabbitMsgReceiver).OnConfirmMessage(confirmed.DeliveryTag, confirmed.Ack)
+		}
 	}
 }
 
 func (self *RabbitMQSession) PushMsg(data []byte) bool {
 	for {
-		if self.IsClosed() {
-			break
-		}
 		err := self.publish(data, true)
 		if err != nil {
 			LogError("%s PushMsg Error: %v", self, err)
@@ -324,9 +334,6 @@ func (self *RabbitMQSession) PushMsg(data []byte) bool {
 
 func (self *RabbitMQSession) PushMsgNoSave(data []byte) bool {
 	for {
-		if self.IsClosed() {
-			break
-		}
 		err := self.publish(data, false)
 		if err != nil {
 			LogError("pushMsg Error: %v", err)
@@ -348,17 +355,9 @@ func (self *RabbitMQSession) StartProducer() {
 
 func (self *RabbitMQSession) StartConsumer() {
 	for {
-		self.Lock()
-		if self.IsClosed() {
-			LogInfo("Consumer finished by closed")
-			self.Unlock()
-			break
-		}
-		self.Unlock()
-
 		err := self.reconnect()
 		if err != nil {
-			LogInfo("Consumer finished by connect failure: %v", err)
+			LogInfo("Consumer finished by reconnect failure: %v", err)
 			break
 		}
 
@@ -396,12 +395,14 @@ func (self *RabbitMQSession) StartConsumer() {
 				msg.DeliveryTag,
 				msg.Body,
 			)
-			ack, requeue := self.onMessageHandle.(RabbitMsgReceiver).OnReceiveMessage(msg.Body)
-			if ack {
-				// 确认收到本条消息, multiple必须为false
-				msg.Ack(false)
-			} else {
-				msg.Nack(false, requeue)
+			if self.onMessageHandle != nil {
+				ack, requeue := self.onMessageHandle.(RabbitMsgReceiver).OnReceiveMessage(msg.Body)
+				if ack {
+					// 确认收到本条消息, multiple必须为false
+					msg.Ack(false)
+				} else {
+					msg.Nack(false, requeue)
+				}
 			}
 		}
 		LogDebug("%s >>>>>>>>>>> finished consumer", self)
