@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 )
 
@@ -42,6 +43,8 @@ func TransactionCallBackError(tx *sql.Tx, args ...interface{}) error {
 func TestMysql(t *testing.T) {
 	fmt.Printf("\n\n=====================  TestMysql  =====================\n")
 
+	SQL_INSERT := "INSERT INTO tbl_Account(sm_autoLoad,Value) VALUES(?,?)"
+
 	config.InitConfig("config_test.conf")
 	cfg := config.GetMysqlConfig()
 	lib.InitMysql(cfg.IP, cfg.Port, cfg.Database, cfg.Account, cfg.Password)
@@ -69,5 +72,16 @@ func TestMysql(t *testing.T) {
 		LogInfo("tbl_Account entry: %v", record)
 	}
 
+	//测试多goruntime下的插入
+	g := new(sync.WaitGroup)
+	total := 4096
+	g.Add(total)
+	for i := 0; i < total; i++ {
+		go func() {
+			lib.MysqlInsert(SQL_INSERT, 1, i)
+			g.Done()
+		}()
+	}
+	g.Wait()
 	lib.MysqlClose()
 }

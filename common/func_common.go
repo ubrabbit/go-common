@@ -10,14 +10,13 @@ import (
 
 func CheckFatal(err error) {
 	if err != nil {
-		//log.Fatal(err)
 		LogFatal("%v", err)
 	}
 }
 
 func CheckPanic(err error) {
 	if err != nil {
-		panic(err.Error())
+		LogPanic(err.Error())
 	}
 }
 
@@ -35,14 +34,14 @@ func JoinString(split string, code ...string) string {
 	for i := 0; i < s_len; i++ {
 		tmp := bytes.Buffer{}
 		_, err := tmp.WriteString(code[i])
-		CheckFatal(err)
+		CheckPanic(err)
 		if i < s_len-1 {
 			_, err = tmp.WriteString(split)
-			CheckFatal(err)
+			CheckPanic(err)
 		}
 
 		_, err = buf.WriteString(tmp.String())
-		CheckFatal(err)
+		CheckPanic(err)
 
 	}
 	return buf.String()
@@ -58,7 +57,7 @@ func Byte2String(x []byte) string {
 
 func StringToInt(str string) int {
 	i, err := strconv.Atoi(str)
-	CheckFatal(err)
+	CheckPanic(err)
 	return i
 }
 

@@ -37,24 +37,29 @@ type MysqlConnect struct {
 	db *sql.DB
 }
 
-func NewMysqlConn(host string, port int, dbname string, username string, password string) *MysqlConnect {
+func NewMysqlConn(host string, port int, dbname string, username string, password string) (*MysqlConnect, error) {
 	dataSourceName := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8", username, password, host, port, dbname)
 	LogInfo("Connect Mysql: %s %d", host, port)
 	db, err := sql.Open("mysql", dataSourceName)
-	CheckFatal(err)
+	if err != nil {
+		return nil, err
+	}
 
 	db.SetMaxOpenConns(MAX_OPEN_MYSQL_CONNECTIONS)
 	db.SetMaxIdleConns(MAX_IDLE_MYSQL_CONNECTIONS)
 	err = db.Ping()
-	CheckFatal(err)
+	if err != nil {
+		return nil, err
+	}
 
 	LogInfo(fmt.Sprintf("Connect Mysql %s Succ", host))
-	return &MysqlConnect{db: db}
+	return &MysqlConnect{db: db}, nil
 }
 
 func InitMysql(host string, port int, dbname string, username string, password string) {
 	LogInfo("InitMysql %s:%d %s", host, port, dbname)
-	conn := NewMysqlConn(host, port, dbname, username, password)
+	conn, err := NewMysqlConn(host, port, dbname, username, password)
+	CheckFatal(err)
 	g_MysqlDB = conn
 	LogInfo("InitMysql Success")
 }
@@ -73,7 +78,7 @@ func (self *MysqlConnect) Close() {
 
 func (self *MysqlConnect) Transaction(txFunc func(*sql.Tx, ...interface{}) error, args ...interface{}) (err error) {
 	tx, err := self.db.Begin()
-	CheckFatal(err)
+	CheckPanic(err)
 	defer func() {
 		if p := recover(); p != nil {
 			tx.Rollback()
@@ -116,14 +121,14 @@ func (self *MysqlConnect) TransactionExec(sql string, args ...interface{}) (resu
 
 func (self *MysqlConnect) PrepareStmt(sql string) *sql.Stmt {
 	sql_stmt, err := self.db.Prepare(sql)
-	CheckFatal(err)
+	CheckPanic(err)
 	return sql_stmt
 }
 
 func (self *MysqlConnect) execStmt(sql string, arg ...interface{}) (sql.Result, error) {
 	sql_stmt, err := self.db.Prepare(sql)
 	defer sql_stmt.Close()
-	CheckFatal(err)
+	CheckPanic(err)
 
 	result, err := sql_stmt.Exec(arg...)
 	return result, err
@@ -131,13 +136,13 @@ func (self *MysqlConnect) execStmt(sql string, arg ...interface{}) (sql.Result, 
 
 func (self *MysqlConnect) Query(sql string, arg ...interface{}) []map[string]interface{} {
 	sql_stmt, err := self.db.Prepare(sql)
-	CheckFatal(err)
+	CheckPanic(err)
 
 	rows, err := sql_stmt.Query(arg...)
-	CheckFatal(err)
+	CheckPanic(err)
 
 	columns, err := rows.Columns()
-	CheckFatal(err)
+	CheckPanic(err)
 
 	scanArgs := make([]interface{}, len(columns))
 	values := make([]interface{}, len(columns))
@@ -148,7 +153,7 @@ func (self *MysqlConnect) Query(sql string, arg ...interface{}) []map[string]int
 	for rows.Next() {
 		//将行数据保存到record字典
 		err := rows.Scan(scanArgs...)
-		CheckFatal(err)
+		CheckPanic(err)
 
 		record := make(map[string]interface{})
 		for i, element := range values {
@@ -209,10 +214,10 @@ func MysqlUpdate(sql string, arg ...interface{}) int64 {
 	checkDBConn()
 
 	result, err := g_MysqlDB.execStmt(sql, arg...)
-	CheckFatal(err)
+	CheckPanic(err)
 
 	num, err := result.RowsAffected()
-	CheckFatal(err)
+	CheckPanic(err)
 	return num
 }
 
@@ -220,10 +225,10 @@ func MysqlInsert(sql string, arg ...interface{}) int64 {
 	checkDBConn()
 
 	result, err := g_MysqlDB.execStmt(sql, arg...)
-	CheckFatal(err)
+	CheckPanic(err)
 
 	lastid, err := result.LastInsertId()
-	CheckFatal(err)
+	CheckPanic(err)
 	return lastid
 }
 
@@ -231,10 +236,10 @@ func MysqlDelete(sql string, arg ...interface{}) int64 {
 	checkDBConn()
 
 	result, err := g_MysqlDB.execStmt(sql, arg...)
-	CheckFatal(err)
+	CheckPanic(err)
 
 	num, err := result.RowsAffected()
-	CheckFatal(err)
+	CheckPanic(err)
 	return num
 }
 
