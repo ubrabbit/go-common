@@ -2,6 +2,7 @@ package common
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"io/ioutil"
 )
@@ -18,4 +19,14 @@ func GetGBKString(src string) string {
 		return src
 	}
 	return string(code_rlt)
+}
+
+func EncodeBase64(src string) string {
+	return base64.StdEncoding.EncodeToString([]byte(src))
+}
+
+func DecodeBase64(src string) string {
+	code, err := base64.StdEncoding.DecodeString(src)
+	CheckPanic(err)
+	return string(code)
 }
