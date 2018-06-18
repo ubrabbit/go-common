@@ -24,7 +24,7 @@ func StringToInt64(str string) int64 {
 }
 
 func StringToFloat64(str string) float64 {
-	f, _ := strconv.ParseFloat(str, 64)
+	f, err := strconv.ParseFloat(str, 64)
 	CheckPanic(err)
 	return f
 }
