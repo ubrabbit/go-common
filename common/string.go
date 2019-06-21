@@ -2,6 +2,7 @@ package common
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 )
 
@@ -22,4 +23,8 @@ func JoinString(split string, code ...string) string {
 
 func StripString(str string) string {
 	return strings.TrimSpace(str)
+}
+
+func FormatString(format string, args ...interface{}) string {
+	return fmt.Sprintf(format, args...)
 }

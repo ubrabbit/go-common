@@ -3,8 +3,8 @@ package common
 import (
 	"bytes"
 	"fmt"
-	log "github.com/ubrabbit/go-common/log"
 	debug "github.com/ubrabbit/go-debug"
+	log "github.com/ubrabbit/go-public/log"
 )
 
 func PrintBuf(buf *bytes.Buffer) {
