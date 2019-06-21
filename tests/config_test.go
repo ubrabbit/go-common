@@ -2,7 +2,7 @@ package tests
 
 import (
 	"fmt"
-	config "github.com/ubrabbit/go-common/config"
+	config "github.com/ubrabbit/go-public/config"
 	"testing"
 )
 

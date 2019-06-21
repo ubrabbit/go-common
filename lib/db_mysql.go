@@ -20,7 +20,7 @@ import (
 	"database/sql"
 	_ "github.com/go-sql-driver/mysql"
 
-	. "github.com/ubrabbit/go-common/common"
+	. "github.com/ubrabbit/go-public/common"
 )
 
 const (

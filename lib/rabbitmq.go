@@ -13,7 +13,7 @@ import (
 import (
 	rabbitmq "github.com/streadway/amqp"
 
-	. "github.com/ubrabbit/go-common/common"
+	. "github.com/ubrabbit/go-public/common"
 )
 
 type RabbitMsgReceiver interface {

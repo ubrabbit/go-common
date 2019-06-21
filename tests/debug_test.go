@@ -6,8 +6,8 @@ import (
 )
 
 import (
-	. "github.com/ubrabbit/go-common/common"
 	debug "github.com/ubrabbit/go-debug"
+	. "github.com/ubrabbit/go-public/common"
 )
 
 func Test_DebugStackTrace(t *testing.T) {

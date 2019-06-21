@@ -2,7 +2,7 @@ package tests
 
 import (
 	"fmt"
-	log "github.com/ubrabbit/go-common/log"
+	log "github.com/ubrabbit/go-public/log"
 	"testing"
 )
 

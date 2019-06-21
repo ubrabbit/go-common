@@ -2,9 +2,9 @@ package tests
 
 import (
 	"fmt"
-	. "github.com/ubrabbit/go-common/common"
-	config "github.com/ubrabbit/go-common/config"
-	lib "github.com/ubrabbit/go-common/lib"
+	. "github.com/ubrabbit/go-public/common"
+	config "github.com/ubrabbit/go-public/config"
+	lib "github.com/ubrabbit/go-public/lib"
 	"testing"
 	"time"
 )

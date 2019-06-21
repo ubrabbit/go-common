@@ -8,7 +8,7 @@ import (
 )
 
 import (
-	lib "github.com/ubrabbit/go-common/lib"
+	lib "github.com/ubrabbit/go-public/lib"
 )
 
 const Redis_RunTimes = 100

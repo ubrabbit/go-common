@@ -9,9 +9,9 @@ import (
 )
 
 import (
-	. "github.com/ubrabbit/go-common/common"
-	config "github.com/ubrabbit/go-common/config"
-	lib "github.com/ubrabbit/go-common/lib"
+	. "github.com/ubrabbit/go-public/common"
+	config "github.com/ubrabbit/go-public/config"
+	lib "github.com/ubrabbit/go-public/lib"
 )
 
 //测试事物成功

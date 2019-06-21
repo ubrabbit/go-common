@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
-	. "github.com/ubrabbit/go-common/common"
-	lib "github.com/ubrabbit/go-common/lib"
+	. "github.com/ubrabbit/go-public/common"
+	lib "github.com/ubrabbit/go-public/lib"
 	"sync"
 	"time"
 )

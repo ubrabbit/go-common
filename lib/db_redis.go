@@ -15,7 +15,7 @@ import (
 import (
 	redis "github.com/garyburd/redigo/redis"
 
-	. "github.com/ubrabbit/go-common/common"
+	. "github.com/ubrabbit/go-public/common"
 )
 
 var (

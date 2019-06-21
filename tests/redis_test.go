@@ -6,8 +6,8 @@ import (
 )
 
 import (
-	config "github.com/ubrabbit/go-common/config"
-	lib "github.com/ubrabbit/go-common/lib"
+	config "github.com/ubrabbit/go-public/config"
+	lib "github.com/ubrabbit/go-public/lib"
 )
 
 func TestRedis(t *testing.T) {
