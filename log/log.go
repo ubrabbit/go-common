@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path"
 	"strings"
 	"time"
 )
@@ -60,19 +59,19 @@ func New(strLevel string, pathname string, flag int) (*Logger, error) {
 
 	// logger
 	var baseLogger *log.Logger
-	var baseFile *os.File
+	var baseFile *os.File = nil
 	if pathname != "" {
-		now := time.Now()
-
-		filename := fmt.Sprintf("%d%02d%02d_%02d_%02d_%02d.log",
-			now.Year(),
-			now.Month(),
-			now.Day(),
-			now.Hour(),
-			now.Minute(),
-			now.Second())
-
-		file, err := os.Create(path.Join(pathname, filename))
+		/*
+			now := time.Now()
+			filename := fmt.Sprintf("%d%02d%02d_%02d_%02d_%02d.log",
+				now.Year(),
+				now.Month(),
+				now.Day(),
+				now.Hour(),
+				now.Minute(),
+				now.Second())
+		*/
+		file, err := os.OpenFile(pathname, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 		if err != nil {
 			return nil, err
 		}
@@ -103,7 +102,8 @@ func (logger *Logger) Close() {
 }
 
 func (logger *Logger) doPrintf(level int, printLevel string, format string, a ...interface{}) {
-	if level < logger.level {
+	//致命错误的优先级要最高
+	if level < logger.level && (level != fatalLevel) {
 		return
 	}
 	if logger.baseLogger == nil {
@@ -112,7 +112,19 @@ func (logger *Logger) doPrintf(level int, printLevel string, format string, a ..
 
 	format = printLevel + format
 	logger.baseLogger.Output(3, fmt.Sprintf(format, a...))
-
+	if logger.baseFile != nil {
+		now := time.Now()
+		msg := fmt.Sprintf("%d/%02d/%02d %02d:%02d:%02d %s\n",
+			now.Year(),
+			now.Month(),
+			now.Day(),
+			now.Hour(),
+			now.Minute(),
+			now.Second(),
+			fmt.Sprintf(format, a...),
+		)
+		fmt.Printf(msg)
+	}
 	if level == fatalLevel {
 		os.Exit(1)
 	}
@@ -142,6 +154,10 @@ func Release(format string, a ...interface{}) {
 	gLogger.doPrintf(releaseLevel, printReleaseLevel, format, a...)
 }
 
+func Info(format string, a ...interface{}) {
+	gLogger.doPrintf(releaseLevel, printReleaseLevel, format, a...)
+}
+
 func Error(format string, a ...interface{}) {
 	gLogger.doPrintf(errorLevel, printErrorLevel, format, a...)
 }
@@ -154,13 +170,23 @@ func Close() {
 	gLogger.Close()
 }
 
-func InitLogger(strLevel string, pathname string) {
+func InitLogger(strLevel string, pathname string) error {
 	obj, err := New(strLevel, pathname, log.LstdFlags)
 	if err != nil {
 		panic(fmt.Sprintf("InitLogger Error: %v", err))
-		return
+		return err
 	}
 	gLogger = obj
+	return nil
+}
+
+func NewLogger(strLevel string, pathname string) (*Logger, error) {
+	obj, err := New(strLevel, pathname, log.LstdFlags)
+	if err != nil {
+		panic(fmt.Sprintf("NewLogger Error: %v", err))
+		return nil, err
+	}
+	return obj, nil
 }
 
 func init() {

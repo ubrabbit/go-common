@@ -21,3 +21,15 @@ func JsonDecodeSimple(source string) *simplejson.Json {
 	CheckPanic(err)
 	return js_obj
 }
+
+func DeepCopyJSON(src map[string]interface{}, dest map[string]interface{}) {
+	for key, value := range src {
+		switch src[key].(type) {
+		case map[string]interface{}:
+			dest[key] = map[string]interface{}{}
+			DeepCopyJSON(src[key].(map[string]interface{}), dest[key].(map[string]interface{}))
+		default:
+			dest[key] = value
+		}
+	}
+}

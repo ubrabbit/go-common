@@ -2,8 +2,9 @@ package common
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
-	debug "github.com/ubrabbit/go-debug"
+	debug "github.com/ubrabbit/go-public/debug"
 	log "github.com/ubrabbit/go-public/log"
 )
 
@@ -20,7 +21,9 @@ func PrintLog(format string, args ...interface{}) {
 }
 
 func LogError(format string, v ...interface{}) {
-	debug.Print(v...)
+	//debug.Print(v...)
+	st := debug.StackTrace(0)
+	log.Error(st.String("    "))
 	log.Error(format, v...)
 }
 
@@ -29,13 +32,13 @@ func LogDebug(format string, v ...interface{}) {
 }
 
 func LogInfo(format string, v ...interface{}) {
-	log.Release(format, v...)
+	log.Info(format, v...)
 }
 
 func LogPanic(format string, v ...interface{}) {
 	st := debug.StackTrace(0)
 	log.Error(st.String("    "))
-	panic(fmt.Sprintf(format, v...))
+	panic(errors.New(fmt.Sprintf(format, v...)))
 }
 
 func LogFatal(format string, v ...interface{}) {

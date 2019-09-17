@@ -12,15 +12,23 @@ func GetTimeString() string {
 	return newFormat
 }
 
-func GetSecond() int64 {
+func GetSecond() int {
 	now := time.Now()
-	return now.Unix()
+	return int(now.Unix())
 }
 
-func GetTime() int64 {
+//毫秒
+func GetMsSecond() int {
 	now := time.Now()
 	//把纳秒转换成毫秒
-	return now.UnixNano() / 1000000
+	return int(now.UnixNano() / 1000000)
+}
+
+//纳秒
+func GetNaSecond() int64 {
+	now := time.Now()
+	//把纳秒转换成毫秒
+	return now.UnixNano()
 }
 
 func CreateTimer(ms int) chan bool {
